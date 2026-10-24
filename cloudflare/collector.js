@@ -14,7 +14,7 @@ export async function collectorRoute(request,env,readBody){
   if(!await limit(env,'collector-jobs',12,3600000))return json({error:'Слишком частые запуски'},429);
   const blockedUntil=Number(await getSetting(env,'collectorBlockedUntil')||0);
   if(blockedUntil>Date.now())return json({jobs:[],blockedUntil});
-  const lock=await lease(env,'collector:github',180000);if(!lock)return json({jobs:[],busy:true});
+  const lock=await lease(env,'collector:github',300000);if(!lock)return json({jobs:[],busy:true});
   try{
    const searches=await active(env),cache=await rows(env,'SELECT url,fetchedAt FROM catalog_cache LIMIT 200');
    const times=new Map(cache.map(c=>[c.url,c.fetchedAt]));
@@ -30,16 +30,17 @@ export async function collectorRoute(request,env,readBody){
  if(!matching.length)return json({error:'Адрес не соответствует активным поискам'},400);
  if(path==='/api/collector/import'){
   if(!Number.isFinite(b.fetchedAt)||b.fetchedAt<Date.now()-5*60000||b.fetchedAt>Date.now()+30000)return json({error:'Данные устарели'},400);
-  if(!Array.isArray(b.items)||b.items.length>100)return json({error:'До 100 товаров'},400);
+  if(!Array.isArray(b.items)||b.items.length>200)return json({error:'До 200 товаров'},400);
   const items=normalizeCatalogRows(b.items.map(i=>({itemId:typeof i.id==='string'?i.id.match(/^vinted:pl:(\d+)$/)?.[1]:null,url:i.url,title:i.title,brand:i.brand,size:i.size,condition:i.condition,price:i.price,currency:i.currency,country:i.country,imageUrl:i.photoUrl})));
   // Only records for the configured Polish market, no arbitrary feed URLs or personal data.
   if(items.some(i=>i.country!=='pl'))return json({error:'Только польский каталог'},400);
   const now=Date.now();
+  const coverage=Number.isInteger(b.pages)&&b.pages>=1&&b.pages<=2?`Проверено страниц: ${b.pages}. ${b.reason==='empty'?'Достигнута пустая страница.':b.reason==='repeated'?'Повтор выдачи; проверка остановлена.':'Достигнут лимит 2 страниц; выдача может быть неполной.'}`:'Проверена первая страница.';
   await env.DB.batch([
    env.DB.prepare('INSERT INTO catalog_cache(url,items,fetchedAt) VALUES(?,?,?) ON CONFLICT(url) DO UPDATE SET items=excluded.items,fetchedAt=excluded.fetchedAt WHERE excluded.fetchedAt>=catalog_cache.fetchedAt').bind(b.url,JSON.stringify(items),b.fetchedAt),
    env.DB.prepare("INSERT INTO settings(key,value) VALUES('collectorLastSuccess',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(String(now)),
    env.DB.prepare("INSERT INTO settings(key,value) VALUES('collectorLastError','') ON CONFLICT(key) DO UPDATE SET value=excluded.value"),
-   env.DB.prepare('UPDATE searches SET nextCheck=0 WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(matching.map(s=>s.id)))
+   env.DB.prepare('UPDATE searches SET nextCheck=0,coverage=? WHERE id IN (SELECT value FROM json_each(?))').bind(coverage,JSON.stringify(matching.map(s=>s.id)))
   ]);
   return json({ok:true,count:items.length});
  }

@@ -1,3 +1,4 @@
+import {nativeCatalog} from '../server/native-filters.js';
 import {readCatalog} from './vinted.js';
 import {collectorRoute} from './collector.js';
 import {notificationFor,sendNotification} from './notifications.js';
@@ -76,10 +77,10 @@ async function router(request,env,ctx){
   return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',catalog:env.DATA_SOURCE==='vinted-public'?{mode:env.CATALOG_FETCH_MODE==='github'?'github':'cloudflare',blockedUntil:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorBlockedUntil':'vintedBlockedUntil')||0),lastError:await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastError':'vintedLastError')||null,lastSuccess:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastSuccess':'vintedLastSuccess')||0)}:null,telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
  }
  if(path==='/api/searches'&&method==='POST'){
-  const input=await body(request),s={...validateSearch(input),...marketFields(input)};
+  const input=await body(request),s={...validateSearch(input),...marketFields(input),catalogUrl:nativeCatalog(input.catalogUrl)};
   if(s.intervalMinutes<5)fail('В бесплатной облачной версии минимальный интервал — 5 минут');
   const id=crypto.randomUUID();
-  const inserted=await run(env,`INSERT INTO searches(id,userId,name,query,brand,size,maxPrice,intervalMinutes,enabled,createdAt,country,currency,minPrice,condition) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM searches WHERE userId=?)<5`,id,u.id,s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,Date.now(),s.country,s.currency,s.minPrice,s.condition,u.id);
+  const inserted=await run(env,`INSERT INTO searches(id,userId,name,query,brand,size,maxPrice,intervalMinutes,enabled,createdAt,country,currency,minPrice,condition,catalogUrl) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM searches WHERE userId=?)<5`,id,u.id,s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,Date.now(),s.country,s.currency,s.minPrice,s.condition,s.catalogUrl,u.id);
   if(!inserted.meta.changes)fail('До 5 поисков на человека в бесплатной версии');
   return json({id},201);
  }
@@ -88,8 +89,8 @@ async function router(request,env,ctx){
   const id=decodeURIComponent(searchMatch[1]);if(!await one(env,'SELECT id FROM searches WHERE id=? AND userId=?',id,u.id))fail('Поиск не найден',404);
   if(method==='DELETE')await run(env,'DELETE FROM searches WHERE id=? AND userId=?',id,u.id);
   else{
-   const input=await body(request),s={...validateSearch(input),...marketFields(input)};if(s.intervalMinutes<5)fail('Минимальный интервал — 5 минут');
-   await run(env,'UPDATE searches SET name=?,query=?,brand=?,size=?,maxPrice=?,intervalMinutes=?,enabled=?,nextCheck=0,error=NULL,country=?,currency=?,minPrice=?,condition=? WHERE id=? AND userId=?',s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,s.country,s.currency,s.minPrice,s.condition,id,u.id);
+   const input=await body(request),s={...validateSearch(input),...marketFields(input),catalogUrl:nativeCatalog(input.catalogUrl)};if(s.intervalMinutes<5)fail('Минимальный интервал — 5 минут');
+   await run(env,'UPDATE searches SET name=?,query=?,brand=?,size=?,maxPrice=?,intervalMinutes=?,enabled=?,nextCheck=0,error=NULL,country=?,currency=?,minPrice=?,condition=?,catalogUrl=? WHERE id=? AND userId=?',s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,s.country,s.currency,s.minPrice,s.condition,s.catalogUrl,id,u.id);
   }
   return json({ok:true});
  }
@@ -114,7 +115,7 @@ async function router(request,env,ctx){
   }
   await telegramCall(env,'sendMessage',{chat_id:u.chatId,text:'✓ Личный Vinted Radar подключён. Ваши уведомления приходят в этот чат.'});return json({ok:true});
  }
- if(path==='/api/export'&&method==='GET')return json({version:2,searches:(await rows(env,'SELECT name,query,brand,size,maxPrice,minPrice,condition,country,currency,intervalMinutes,enabled FROM searches WHERE userId=?',u.id)).map(s=>({...s,enabled:!!s.enabled}))},200,{'Content-Disposition':'attachment; filename="radar-searches.json"'});
+ if(path==='/api/export'&&method==='GET')return json({version:2,searches:(await rows(env,'SELECT name,query,brand,size,maxPrice,minPrice,condition,country,currency,intervalMinutes,enabled,catalogUrl FROM searches WHERE userId=?',u.id)).map(s=>({...s,enabled:!!s.enabled}))},200,{'Content-Disposition':'attachment; filename="radar-searches.json"'});
  if(path==='/api/admin/invites'&&method==='GET'){admin();return json({invites:await rows(env,'SELECT token id,expires,usedBy,revoked FROM invites ORDER BY createdAt DESC LIMIT 20')});}
  if(path==='/api/admin/invites'&&method==='POST'){
   admin();if(!env.BOT_USERNAME||!env.BOT_TOKEN)fail('Сначала подключите Telegram-бота');

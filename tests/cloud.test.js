@@ -10,6 +10,7 @@ import {digest,telegramIdentity} from '../cloudflare/security.js';
 // Uses real SQLite for the D1 SQL surface and atomic batch semantics. Wrangler checks the actual Worker bundle separately.
 function fixture(){
  const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0003_public_catalog.sql',import.meta.url),'utf8'));
+ db.exec(readFileSync(new URL('../migrations/0004_native_filters.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -262,4 +263,13 @@ test('Multiple size choices survive API save, reload and pause updates without c
  let state=await (await owner('/state')).json(),item=state.searches.find(s=>s.id===saved.id);assert.equal(item.size,'s, M');
  assert.equal((await owner('/searches/'+item.id,{...item,enabled:false},'PUT')).status,200);
  state=await (await owner('/state')).json();item=state.searches.find(s=>s.id===saved.id);assert.equal(item.size,'s, M');assert.equal(item.enabled,false);db.close();
+});
+
+test('Native filters survive save, reload, pause and export without stale text filtering',async()=>{
+ const {env,db}=fixture(),owner=client(env);await owner('/login',{password:env.APP_PASSWORD});
+ const response=await owner('/searches',{...search,query:'',brand:'',country:'pl',currency:'PLN',catalogUrl:'https://www.vinted.pl/catalog?catalog[]=183&brand_ids[]=2029&size_ids[]=123&color_ids[]=1'});
+ assert.equal(response.status,201);const saved=await response.json();
+ let state=await (await owner('/state')).json(),item=state.searches.find(s=>s.id===saved.id);assert.ok(item.catalogUrl.includes('size_ids'));
+ assert.equal((await owner('/searches/'+item.id,{...item,enabled:false},'PUT')).status,200);
+ const exported=await (await owner('/export')).json();assert.equal(exported.searches[0].catalogUrl,item.catalogUrl);db.close();
 });

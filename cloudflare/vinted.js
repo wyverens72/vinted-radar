@@ -1,3 +1,4 @@
+import {nativeCatalog} from '../server/native-filters.js';
 import {normalizeCatalogRows} from './catalog-records.js';
 import {one,run,getSetting,setSetting,lease,release} from './data.js';
 import {failureDiagnostic,retryDelay} from './catalog-diagnostics.js';
@@ -7,6 +8,7 @@ const text=s=>decode(s.replace(/<[^>]*>/g,'')).replace(/\s+/g,' ').trim();
 function attrs(tag){const out={};for(const m of tag.matchAll(/([\w-]+)\s*=\s*(["'])(.*?)\2/gs))out[m[1]]=decode(m[3]);return out;}
 export function catalogUrl(search){
  if(search.country!=='pl')throw Error('Публичный сборщик сейчас поддерживает Польшу. Выберите Польшу и бюджет в zł в настройках поиска.');
+ if(search.catalogUrl)return nativeCatalog(search.catalogUrl);
  const u=new URL('https://www.vinted.pl/catalog');
  u.searchParams.set('search_text',[search.query,search.brand].filter(Boolean).join(' ').trim());
  u.searchParams.set('order','newest_first');u.searchParams.set('price_from',String(search.minPrice||0));u.searchParams.set('price_to',String(search.maxPrice));u.searchParams.set('currency','PLN');
@@ -69,4 +71,19 @@ export async function readCatalog(env,search){
  finally{await release(env,key,token);}
 }
 // Changing filters starts a fresh baseline rather than flooding the chat with old inventory.
-export const catalogSearchKey=s=>JSON.stringify([s.country,s.currency,s.query,s.brand,s.size,s.condition,s.minPrice,s.maxPrice]);
+export const catalogSearchKey=s=>JSON.stringify([s.country,s.currency,s.query,s.brand,s.size,s.condition,s.minPrice,s.maxPrice,s.catalogUrl||'']);
+
+// Bounded window, deduplicated across pages. A failed page invalidates the entire scan.
+export async function fetchCatalogWindow(url,{fetchPage=fetchCatalog,pause=async()=>{},maxPages=2}={}){
+ const unique=new Map();let pages=0,reason='limit';
+ for(let page=1;page<=maxPages;page++){
+  const u=new URL(url);if(page>1)u.searchParams.set('page',String(page));
+  const items=await fetchPage(u.href);pages++;
+  const added=items.filter(i=>!unique.has(i.id)).length;
+  for(const item of items)unique.set(item.id,item);
+  if(!items.length){reason='empty';break;}
+  if(!added){reason='repeated';break;}
+  if(page<maxPages)await pause();
+ }
+ return {items:[...unique.values()],pages,reason};
+}

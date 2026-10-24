@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {nativeCatalog} from '../server/native-filters.js';
+import {catalogUrl,fetchCatalogWindow} from '../cloudflare/vinted.js';
+import {matches,validateSearch} from '../server/domain.js';
+test('Native URL preserves exact IDs, strips tracking/page and rejects unsupported filters or remote targets',()=>{
+ const url=nativeCatalog('https://www.vinted.pl/catalog/16-obuwie?brand_ids[]=2029&size_ids[]=123&color_ids[]=1&status_ids[]=2&page=9&time=123&price_to=60');
+ const p=new URL(url).searchParams;assert.equal(p.get('catalog[]'),'16');assert.equal(p.get('size_ids[]'),'123');assert.equal(p.has('page'),false);assert.equal(p.get('order'),'newest_first');
+ for(const bad of ['https://evil.example/catalog','https://www.vinted.pl/api/catalog','https://www.vinted.pl/catalog?access_token=secret','https://www.vinted.pl/catalog?brand_ids[]=bad','https://www.vinted.pl/catalog?currency=EUR'])assert.throws(()=>nativeCatalog(bad));
+ assert.equal(catalogUrl({country:'pl',catalogUrl:url}),url);
+ validateSearch({name:'Shoes',query:'',brand:'',size:'',catalogUrl:url,maxPrice:60,intervalMinutes:5,enabled:true});
+ assert.equal(matches({catalogUrl:url,brand:'outdated',size:'S',maxPrice:1},{country:'pl',currency:'PLN',price:50}),true);
+});
+test('Pagination deduplicates, bounds requests, and never accepts a partially failed scan',async()=>{
+ const result=await fetchCatalogWindow('https://www.vinted.pl/catalog',{fetchPage:async u=>new URL(u).searchParams.has('page')?[{id:'b'},{id:'c'}]:[{id:'a'},{id:'b'}]});
+ assert.deepEqual(result.items.map(i=>i.id),['a','b','c']);assert.equal(result.pages,2);assert.equal(result.reason,'limit');
+ await assert.rejects(fetchCatalogWindow('https://www.vinted.pl/catalog',{fetchPage:async u=>{if(new URL(u).searchParams.has('page'))throw Error('429');return [{id:'a'}];}}));
+});

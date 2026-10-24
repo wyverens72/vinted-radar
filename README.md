@@ -152,3 +152,12 @@ The first successful result fills the feed without sending old inventory to Tele
 Search forms use a searchable single-brand dialog and a multi-size sheet. Brand suggestions come from the signed-in user's loaded matches and saved searches; this is not the complete official Vinted brand taxonomy. Any other brand name can be entered explicitly. Comparison ignores case and normalizes whitespace but does not translate spelling or aliases.
 
 Sizes are stored in the existing size field as comma-separated choices (up to 10). Any selected size may match; an empty selection means all sizes. Letter case is ignored. Composite listing labels such as M / 38 match M or 38; regional labels such as EU 38 and UK 10 are not automatically equated. Existing single-size searches remain valid. The picker offers letter sizes and exact labels in the user's listings; custom labels can be added.
+
+
+## Native Vinted filters (Poland)
+
+The search form includes a searchable snapshot of 2,920 category nodes, five conditions, 29 colors and a verified starter brand list. Labels preserve Polish Vinted names. This is a dated public catalog snapshot (2026-10-24), not a continuously synchronized complete brand registry.
+
+Paste an ordinary Vinted.pl catalog search URL to preserve any supported brand and category-specific size IDs, colors, materials, query and budget. Canonicalization accepts only the public Polish catalog, rejects unknown parameters and external targets, strips page/time and forces newest-first. Native searches rely on Vinted's filter semantics, without stale local brand/size/title post-filters. Changing category clears size IDs. A full native size-label picker and complete brand autocomplete are not yet implemented; use Vinted's own controls and import the URL for these.
+
+The GitHub collector reads at most two pages per search, deduplicates IDs and imports only after both pages succeed. Per-search coverage reports an empty page, repeated results or the two-page limit. This bounded window cannot guarantee exhaustive coverage or zero missed listings. First native-filter scan creates a baseline without historical notification bursts. Additive migration `0004_native_filters.sql` preserves old searches; exported searches include the canonical URL.

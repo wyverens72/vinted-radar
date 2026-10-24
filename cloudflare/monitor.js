@@ -57,7 +57,7 @@ export async function monitor(env,{userId=null,force=false,send=true}={}){
    try{
    const live=env.DATA_SOURCE==='vinted-public',key=live?catalogSearchKey(s):null,baseline=live&&s.catalogKey!==key;
    const sourceItems=live?await readCatalog(env,s):items;
-   const selected=sourceItems.filter(i=>matches(s,i)).slice(0,100);
+   const selected=sourceItems.filter(i=>matches(s,i)).slice(0,200);
    const envelopes=selected.map(item=>({item,...notificationFor(s,item)}));
    const statements=[env.DB.prepare(`INSERT OR IGNORE INTO matches(searchId,itemId,item,foundAt) SELECT ?,json_extract(value,'$.item.id'),json_extract(value,'$.item'),? FROM json_each(?)`).bind(s.id,now,JSON.stringify(envelopes))];
    if(env.BOT_TOKEN&&s.notifications&&s.chatId&&(env.DATA_SOURCE==='demo'||!env.DATA_SOURCE))statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text) SELECT ?,?,?,? || group_concat('• ' || json_extract(item,'$.title') || ' · ' || json_extract(item,'$.price') || CASE WHEN json_extract(item,'$.currency')='PLN' THEN ' zł' ELSE ' €' END,char(10)) || ? FROM (SELECT item FROM matches WHERE searchId=? AND foundAt=? LIMIT 5) HAVING count(*)>0`).bind(crypto.randomUUID(),s.id,'batch:'+now,`${env.DATA_SOURCE==='demo'?'🧪 ДЕМО · ':''}${s.name}\nНовые совпадения (первые 5):\n`,env.PUBLIC_URL?'\nВсе находки: '+env.PUBLIC_URL:'',s.id,now));

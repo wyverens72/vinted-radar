@@ -1,3 +1,4 @@
+import {nativeCatalog} from './native-filters.js';
 import {photoUrl,markets,normalized,sizeSelections} from './catalog.js';
 export function validateItems(items) {
   if(!Array.isArray(items)||items.length>5000) throw Error('Источник должен содержать массив до 5000 товаров');
@@ -13,6 +14,7 @@ export function validateItems(items) {
   });
 }
 export function matches(search,item) {
+  if(search.catalogUrl){nativeCatalog(search.catalogUrl);return item.country==='pl'&&item.currency==='PLN';}
   const words=normalized(search.query).split(' ').filter(Boolean),title=normalized(`${item.title} ${item.brand}`);
   const sizes=normalized(item.size).split('/').map(s=>s.trim());
   const selected=sizeSelections(search.size).map(normalized);
@@ -27,7 +29,7 @@ export function validateSearch(input) {
   const selected=sizeSelections(out.size);
   if(selected.length>10||selected.some(s=>s.length>40))throw Error('Выберите до 10 размеров');
   out.size=selected.join(', ');
-  if(!out.name||(!out.query&&!out.brand)) throw Error('Укажите название и запрос или бренд');
+  if(!out.name||(!out.query&&!out.brand&&!nativeCatalog(input.catalogUrl))) throw Error('Укажите название и запрос или бренд');
   out.maxPrice=Number(input.maxPrice); out.intervalMinutes=Number(input.intervalMinutes);
   if(!Number.isFinite(out.maxPrice)||out.maxPrice<1||out.maxPrice>100000||![1,5,15,30,60].includes(out.intervalMinutes)||typeof input.enabled!=='boolean') throw Error('Проверьте цену и интервал');
   out.enabled=Number(input.enabled); return out;
