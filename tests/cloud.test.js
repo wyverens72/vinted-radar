@@ -273,3 +273,30 @@ test('Native filters survive save, reload, pause and export without stale text f
  assert.equal((await owner('/searches/'+item.id,{...item,enabled:false},'PUT')).status,200);
  const exported=await (await owner('/export')).json();assert.equal(exported.searches[0].catalogUrl,item.catalogUrl);db.close();
 });
+
+test('Public registration verifies private webhook, creates isolated member and one-use browser login, never restores revoked access',async()=>{
+ const {env,db}=fixture();env.PUBLIC_REGISTRATION='true';env.DATA_SOURCE='vinted-public';const original=globalThis.fetch,sent=[];
+ globalThis.fetch=async(url,o)=>{sent.push(JSON.parse(o.body));return Response.json({ok:true,result:{message_id:sent.length}});};
+ const hook=(id,updateId,extra={})=>new Request('https://radar.example/api/telegram/webhook',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':env.TELEGRAM_WEBHOOK_SECRET},body:JSON.stringify({update_id:updateId,message:{chat:{id,type:'private'},from:{id,first_name:'Friend'},text:'/start',...extra}})});
+ try{
+  assert.equal((await worker.fetch(hook(222,80),env,{})).status,200);
+  const member=db.prepare("SELECT * FROM users WHERE telegramId='222'").get();assert.equal(member.role,'member');assert.equal(member.chatId,'222');assert.equal(member.notifications,1);assert.equal(member.enabled,1);
+  assert.ok(!sent[0].text.includes('вымышленные'));
+  const token=new URL(sent[0].reply_markup.inline_keyboard[1][0].url).hash.slice('#login='.length);
+  const friend=client(env);assert.equal((await friend('/login',{loginCode:token})).status,200);
+  assert.equal((await friend('/login',{loginCode:token})).status,401);
+  const owner=client(env);await owner('/login',{password:env.APP_PASSWORD});await owner('/searches',search);
+  assert.equal((await (await friend('/state')).json()).searches.length,0);assert.equal((await friend('/admin/members')).status,403);
+  await worker.fetch(hook(222,81),env,{});assert.equal(db.prepare("SELECT count(*) n FROM users WHERE telegramId='222'").get().n,1);
+  await worker.fetch(hook(333,82,{chat:{id:333,type:'group'}}),env,{});assert.equal(db.prepare("SELECT count(*) n FROM users WHERE telegramId='333'").get().n,0);
+  db.prepare("UPDATE users SET enabled=0 WHERE telegramId='222'").run();await worker.fetch(hook(222,83),env,{});assert.equal(db.prepare("SELECT enabled FROM users WHERE telegramId='222'").get().enabled,0);
+  const config=await (await worker.fetch(new Request('https://radar.example/api/public-config'),env,{})).json();assert.equal(config.registration,true);
+ }finally{globalThis.fetch=original;db.close();}
+});
+
+test('Public registration respects atomic account quota and never takes owner role',async()=>{
+ const {registerTelegram}=await import('../cloudflare/telegram.js');const {env,db}=fixture();env.PUBLIC_REGISTRATION='true';
+ for(let i=0;i<9;i++)assert.ok(await registerTelegram(env,{id:2000+i,first_name:'User'}));
+ assert.equal(await registerTelegram(env,{id:9000}),null);assert.equal(db.prepare('SELECT count(*) n FROM users').get().n,10);
+ assert.equal(db.prepare("SELECT count(*) n FROM users WHERE role='owner'").get().n,1);db.close();
+});

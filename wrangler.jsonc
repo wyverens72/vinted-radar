@@ -24,6 +24,7 @@
     ]
   },
   "vars": {
+    "PUBLIC_REGISTRATION": "true",
     "DATA_SOURCE": "vinted-public",
     "CATALOG_FETCH_MODE": "github",
     "AUTHORIZED_FEED_CONFIRMED": "false",

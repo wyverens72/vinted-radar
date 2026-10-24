@@ -78,7 +78,7 @@ GitHub Actions проверяет исходники на push; автомати
 
 ## Приглашение подруги
 
-Войдите как владелец → **Подключение → Пригласить подругу → Создать приглашение**. Отправьте полученную ссылку лично. Подруга открывает её в Telegram и нажимает Start, затем **Открыть мой радар**. Создаётся её отдельный аккаунт с пустой лентой и собственными уведомлениями. Ваш пароль передавать не нужно.
+Отправьте подруге обычную ссылку сайта или https://t.me/SNvintedradarbot. На сайте она выбирает «Зарегистрироваться / войти через Telegram», в боте нажимает Start. Бот создаёт отдельный аккаунт, подключает личные уведомления и предлагает Mini App либо одноразовую ссылку в браузер. Ссылку входа нельзя пересылать; она действует 5 минут. Пароль владельца не нужен. Приглашения владельца остаются дополнительным вариантом.
 
 Отключение участника завершает его сессии, блокирует подпись Telegram и удаляет ожидающую очередь его уведомлений. Поиски сохраняются; при восстановлении доступа снова доступны. /stop останавливает только уведомления пользователя, не его поиски.
 
@@ -164,3 +164,10 @@ The GitHub collector reads at most two pages per search, deduplicates IDs and im
 
 
 Category browsing now shows one level at a time, with Russian labels for main sections, Polish source labels, back navigation and “select all in this group”. New searches explicitly choose URL import or manual keywords/filters. The published Vinted brand index and all 25 linked alphabetical pages were read on 2026-10-24, yielding 5,901 unique brand IDs/names. These are selectable and searchable; the initial 150 matches are rendered to keep the sheet responsive. The source manifest is in `web/src/catalog-brands-source.json`. This replaces the starter list; it does not claim complete coverage of Vinted’s internal brand database.
+
+
+## Telegram registration
+
+`PUBLIC_REGISTRATION=true` enables registration only through private `/start` messages accepted by the secret-validated Telegram webhook. Browser-submitted Telegram IDs cannot create accounts. New accounts are members, capped atomically at 10 total accounts including the owner, with 5 searches per user. Existing disabled accounts are not re-enabled by `/start`. Registration has a global hourly limit. `/start` binds notifications to that same Telegram chat and supplies a five-minute, one-use browser login plus a Mini App button. The user explicitly confirms browser login after seeing the account name. Set `PUBLIC_REGISTRATION=false` and deploy to return to invite-only onboarding.
+
+Cloudflare serves the app, D1 persists per-user data, and GitHub Actions runs collection while the owner's laptop is off. Collector scheduling is approximate, searches are queued (up to three unique due catalogs per run), and no exact 15-minute per-search delivery SLA is implied.

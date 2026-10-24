@@ -36,7 +36,7 @@ async function router(request,env,ctx){
   if(Number(request.headers.get('Content-Length')||0)>100000)return json({error:'Too large'},413);
   return webhook(request,env);
  }
- if(path==='/api/public-config'&&method==='GET')return json({cloud:true,botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null});
+ if(path==='/api/public-config'&&method==='GET')return json({cloud:true,registration:env.PUBLIC_REGISTRATION==='true',botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null});
  if(!['GET','HEAD'].includes(method)){
   if(request.headers.get('X-Radar-Client')!=='1')fail('Обновите приложение',403);
   const origin=request.headers.get('Origin');if(origin&&origin!==url.origin)fail('Недопустимый источник запроса',403);
@@ -58,7 +58,7 @@ async function router(request,env,ctx){
    user=await telegramUser(env,await telegramIdentity(b.initData,env.BOT_TOKEN));
    if(!user&&typeof b.password==='string'&&env.APP_PASSWORD?.length>=24&&b.password.length<=300&&equal(await digest(b.password),await digest(env.APP_PASSWORD)))user=await one(env,"SELECT * FROM users WHERE id='owner' AND enabled=1");
   }
-  if(!user)fail('Нет доступа. Откройте приглашение в Telegram или проверьте пароль владельца.',401);
+  if(!user)fail('Нет доступа. Отправьте боту /start для регистрации или проверьте пароль владельца.',401);
   return signIn(request,env,user);
  }
  const auth=await identity(request,env),u=auth.user;
