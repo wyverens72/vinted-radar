@@ -14,5 +14,7 @@ export function nativeCatalog(value){
  for(const key of ['price_from','price_to'])if(source.searchParams.has(key)){const n=Number(source.searchParams.get(key));if(!Number.isFinite(n)||n<0||n>100000)throw Error('Некорректная цена');out.searchParams.set(key,String(n));}
  if(Number(out.searchParams.get('price_from')||0)>Number(out.searchParams.get('price_to')||100000))throw Error('Минимальная цена выше максимальной');
  if(source.searchParams.has('currency')&&source.searchParams.get('currency')!=='PLN')throw Error('Для Польши нужна валюта PLN');
- out.searchParams.set('currency','PLN');out.searchParams.set('order','newest_first');return out.href;
+ const order=source.searchParams.get('order')||'newest_first';
+ if(!['newest_first','relevance'].includes(order))throw Error('Выберите «Самые новые» или «Рекомендованные Vinted»');
+ out.searchParams.set('currency','PLN');out.searchParams.set('order',order);return out.href;
 }

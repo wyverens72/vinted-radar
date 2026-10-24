@@ -31,3 +31,10 @@ test('Catalog page provenance preserves the first occurrence across repeated pro
  const {fetchCatalogProgress}=await import('../cloudflare/vinted.js');const result=await fetchCatalogProgress('https://www.vinted.pl/catalog',{fetchPage:async u=>{const page=Number(new URL(u).searchParams.get('page')||1);return [{id:'promoted'},{id:'page-'+page}];}});
  assert.equal(result.items.find(i=>i.id==='promoted').catalogPage,1);assert.equal(result.items.find(i=>i.id==='page-5').catalogPage,5);
 });
+
+test('Native sorting preserves Vinted relevance and newest-first modes without inventing popularity ranking',()=>{
+ const relevance=nativeCatalog('https://www.vinted.pl/catalog?search_text=kurtka&order=relevance');assert.equal(new URL(relevance).searchParams.get('order'),'relevance');
+ assert.equal(catalogUrl({country:'pl',catalogUrl:relevance}),relevance);
+ assert.equal(new URL(nativeCatalog('https://www.vinted.pl/catalog')).searchParams.get('order'),'newest_first');
+ assert.throws(()=>nativeCatalog('https://www.vinted.pl/catalog?order=popular_first'));
+});

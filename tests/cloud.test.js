@@ -338,3 +338,12 @@ test('Current-page finds overtake older queued selections without claiming publi
  const original=globalThis.fetch,sent=[];globalThis.fetch=async(url,o)=>{sent.push(JSON.parse(o.body));return Response.json({ok:true,result:{message_id:sent.length}});};
  try{await deliver(env);assert.match(sent[0].caption,/Current page result/);assert.match(sent[1].caption,/Подборка по вашему поиску/);}finally{globalThis.fetch=original;db.close();}
 });
+
+test('Search sorting roundtrips through API and demotes the previous mode queue',async()=>{
+ const {env,db}=fixture(),owner=client(env);await owner('/login',{password:env.APP_PASSWORD});
+ const input={...search,country:'pl',currency:'PLN',catalogUrl:'https://www.vinted.pl/catalog?search_text=cos&order=newest_first'};
+ const saved=await (await owner('/searches',input)).json();db.prepare('INSERT INTO outbox(id,searchId,itemId,text,priority) VALUES(?,?,?,?,?)').run('pending-mode',saved.id,'test-item','Old mode',2);
+ assert.equal((await owner('/searches/'+saved.id,{...input,catalogUrl:'https://www.vinted.pl/catalog?search_text=cos&order=relevance'},'PUT')).status,200);
+ const state=await (await owner('/state')).json(),s=state.searches.find(s=>s.id===saved.id);assert.equal(new URL(s.catalogUrl).searchParams.get('order'),'relevance');assert.equal(db.prepare('SELECT priority FROM outbox').get().priority,0);
+ const exported=await (await owner('/export')).json();assert.equal(new URL(exported.searches[0].catalogUrl).searchParams.get('order'),'relevance');db.close();
+});

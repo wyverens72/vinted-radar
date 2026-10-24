@@ -96,6 +96,8 @@ async function router(request,env,ctx){
   if(method==='DELETE')await run(env,'DELETE FROM searches WHERE id=? AND userId=?',id,u.id);
   else{
    const input=await body(request),s={...validateSearch(input),...marketFields(input),catalogUrl:nativeCatalog(input.catalogUrl)};if(s.intervalMinutes<5)fail('Минимальный интервал — 5 минут');
+   const previous=await one(env,'SELECT catalogUrl FROM searches WHERE id=? AND userId=?',id,u.id);
+   if(previous.catalogUrl!==s.catalogUrl)await run(env,'UPDATE outbox SET priority=0 WHERE searchId=? AND sentAt IS NULL',id);
    await run(env,'UPDATE searches SET name=?,query=?,brand=?,size=?,maxPrice=?,intervalMinutes=?,enabled=?,nextCheck=0,error=NULL,country=?,currency=?,minPrice=?,condition=?,catalogUrl=? WHERE id=? AND userId=?',s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,s.country,s.currency,s.minPrice,s.condition,s.catalogUrl,id,u.id);
   }
   return json({ok:true});
