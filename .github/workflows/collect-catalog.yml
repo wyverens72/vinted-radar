@@ -21,6 +21,6 @@ jobs:
           node-version: '24'
       - name: Collect public listings without login or proxies
         env:
-          RADAR_URL: https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev
+          RADAR_URL: https://app.vinted-radar.workers.dev
           CATALOG_COLLECTOR_TOKEN: ${{ secrets.CATALOG_COLLECTOR_TOKEN }}
         run: node scripts/collect-catalog.js

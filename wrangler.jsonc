@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "vinted-radar-wyverens72",
+  "name": "app",
   "main": "cloudflare/worker.js",
   "compatibility_date": "2026-10-24",
   "workers_dev": true,
@@ -28,7 +28,7 @@
     "DATA_SOURCE": "vinted-public",
     "CATALOG_FETCH_MODE": "github",
     "AUTHORIZED_FEED_CONFIRMED": "false",
-    "PUBLIC_URL": "https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev",
+    "PUBLIC_URL": "https://app.vinted-radar.workers.dev",
     "BOT_USERNAME": "SNvintedradarbot"
   },
   "observability": {

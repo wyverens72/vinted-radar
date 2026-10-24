@@ -1,6 +1,6 @@
 # Vinted Radar
 
-Сайт: https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev
+Сайт: https://app.vinted-radar.workers.dev
 
 Личный радар находок: React PWA, Telegram Mini App и Telegram-бот. Облачная версия работает на Cloudflare Workers + D1 + Cron Triggers; ориентирована на бесплатный тариф и небольшую группу приглашённых пользователей.
 
