@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vinted-radar-wyverens72",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-10-24",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vinted-radar",
+      "database_id": "83e6d278-304e-417a-925e-10c00bafe969",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
+  "vars": {
+    "DATA_SOURCE": "demo",
+    "AUTHORIZED_FEED_CONFIRMED": "false",
+    "PUBLIC_URL": "https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev",
+    "BOT_USERNAME": "SNvintedradarbot"
+  },
+  "observability": {
+    "enabled": false
+  }
+}

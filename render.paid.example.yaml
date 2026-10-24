@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: vinted-radar
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    disk:
+      name: radar-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DATABASE_PATH
+        value: /var/data/radar.sqlite
+      - key: DATA_SOURCE
+        value: demo
+      - key: APP_PASSWORD
+        generateValue: true
+      - key: PUBLIC_URL
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_OWNER_ID
+        sync: false

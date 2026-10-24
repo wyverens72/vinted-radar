@@ -1,0 +1,15 @@
+services:
+  radar:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATABASE_PATH: /app/data/radar.sqlite
+      AUTHORIZED_FEED_PATH: /app/data/authorized-feed.json
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - radar-data:/app/data
+volumes:
+  radar-data:
