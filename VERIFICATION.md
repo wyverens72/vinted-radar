@@ -20,3 +20,6 @@
 Реальный каталог и OAuth обычного аккаунта Vinted не подключены. Нужен отдельный разрешённый источник.
 
 Приёмка настоящего Telegram-чата, аккаунта подруги, доставки по расписанию при закрытом приложении и установки на физический iPhone проводится после настройки бота. Автоматические тесты используют подставной Telegram API.
+
+
+2026-10-24: Polish catalog preparation: 19 automated tests pass; frontend build and Worker dry run pass. Tests use synthetic authorized-feed records and mocked Telegram, not live Vinted access. Photo delivery, fallback, retry, PLN, country, condition, range and size matching verified in tests. Apify runtime integration removed. Production remains demo.

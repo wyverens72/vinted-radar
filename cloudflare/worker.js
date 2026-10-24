@@ -1,3 +1,4 @@
+import {marketFields} from '../server/catalog.js';
 import {validateSearch,validateItems} from '../server/domain.js';
 import {digest,random,equal,cookie,telegramIdentity} from './security.js';
 import {one,rows,run,getSetting,setSetting,limit,telegramUser} from './data.js';
@@ -71,10 +72,10 @@ async function router(request,env,ctx){
   return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
  }
  if(path==='/api/searches'&&method==='POST'){
-  const s=validateSearch(await body(request));
+  const input=await body(request),s={...validateSearch(input),...marketFields(input)};
   if(s.intervalMinutes<5)fail('В бесплатной облачной версии минимальный интервал — 5 минут');
   const id=crypto.randomUUID();
-  const inserted=await run(env,`INSERT INTO searches(id,userId,name,query,brand,size,maxPrice,intervalMinutes,enabled,createdAt) SELECT ?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM searches WHERE userId=?)<5`,id,u.id,s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,Date.now(),u.id);
+  const inserted=await run(env,`INSERT INTO searches(id,userId,name,query,brand,size,maxPrice,intervalMinutes,enabled,createdAt,country,currency,minPrice,condition) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM searches WHERE userId=?)<5`,id,u.id,s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,Date.now(),s.country,s.currency,s.minPrice,s.condition,u.id);
   if(!inserted.meta.changes)fail('До 5 поисков на человека в бесплатной версии');
   return json({id},201);
  }
@@ -83,8 +84,8 @@ async function router(request,env,ctx){
   const id=decodeURIComponent(searchMatch[1]);if(!await one(env,'SELECT id FROM searches WHERE id=? AND userId=?',id,u.id))fail('Поиск не найден',404);
   if(method==='DELETE')await run(env,'DELETE FROM searches WHERE id=? AND userId=?',id,u.id);
   else{
-   const s=validateSearch(await body(request));if(s.intervalMinutes<5)fail('Минимальный интервал — 5 минут');
-   await run(env,'UPDATE searches SET name=?,query=?,brand=?,size=?,maxPrice=?,intervalMinutes=?,enabled=?,nextCheck=0,error=NULL WHERE id=? AND userId=?',s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,id,u.id);
+   const input=await body(request),s={...validateSearch(input),...marketFields(input)};if(s.intervalMinutes<5)fail('Минимальный интервал — 5 минут');
+   await run(env,'UPDATE searches SET name=?,query=?,brand=?,size=?,maxPrice=?,intervalMinutes=?,enabled=?,nextCheck=0,error=NULL,country=?,currency=?,minPrice=?,condition=? WHERE id=? AND userId=?',s.name,s.query,s.brand,s.size,s.maxPrice,s.intervalMinutes,s.enabled,s.country,s.currency,s.minPrice,s.condition,id,u.id);
   }
   return json({ok:true});
  }
@@ -103,7 +104,7 @@ async function router(request,env,ctx){
   if(!await limit(env,'test:'+u.id,3,60000))fail('Подождите минуту',429);
   await telegramCall(env,'sendMessage',{chat_id:u.chatId,text:'✓ Личный Vinted Radar подключён. Ваши уведомления приходят в этот чат.'});return json({ok:true});
  }
- if(path==='/api/export'&&method==='GET')return json({version:2,searches:(await rows(env,'SELECT name,query,brand,size,maxPrice,intervalMinutes,enabled FROM searches WHERE userId=?',u.id)).map(s=>({...s,enabled:!!s.enabled}))},200,{'Content-Disposition':'attachment; filename="radar-searches.json"'});
+ if(path==='/api/export'&&method==='GET')return json({version:2,searches:(await rows(env,'SELECT name,query,brand,size,maxPrice,minPrice,condition,country,currency,intervalMinutes,enabled FROM searches WHERE userId=?',u.id)).map(s=>({...s,enabled:!!s.enabled}))},200,{'Content-Disposition':'attachment; filename="radar-searches.json"'});
  if(path==='/api/admin/invites'&&method==='GET'){admin();return json({invites:await rows(env,'SELECT token id,expires,usedBy,revoked FROM invites ORDER BY createdAt DESC LIMIT 20')});}
  if(path==='/api/admin/invites'&&method==='POST'){
   admin();if(!env.BOT_USERNAME||!env.BOT_TOKEN)fail('Сначала подключите Telegram-бота');
@@ -148,7 +149,7 @@ export default {
   try{response=await router(request,env,ctx);}catch(e){response=json({error:e.status||e.name==='Error'?e.message:'Ошибка сервера'},e.status||400);}
   const headers=new Headers(response.headers);
   headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
-  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'");
+  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: https://*.vinted.net https://vinted.net; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'");
   if(new URL(request.url).protocol==='https:')headers.set('Strict-Transport-Security','max-age=31536000');
   return new Response(response.body,{status:response.status,headers});
  },

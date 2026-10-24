@@ -9,7 +9,7 @@ import {acceptInvite,newLoginCode} from '../cloudflare/telegram.js';
 import {digest,telegramIdentity} from '../cloudflare/security.js';
 // Uses real SQLite for the D1 SQL surface and atomic batch semantics. Wrangler checks the actual Worker bundle separately.
 function fixture(){
- const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -137,4 +137,43 @@ test('Cloud token validation rejects wrong format and normalizes surrounding whi
  const {env,db}=fixture();const original=globalThis.fetch;let calls=0;
  globalThis.fetch=async url=>{calls++;assert.ok(!url.includes('%20'));return Response.json({ok:true,result:{username:'TestRadarBot'}});};
  try{env.BOT_TOKEN='@TestRadarBot';await assert.rejects(()=>telegramCall(env,'getMe',{}),/неверный формат/);assert.equal(calls,0);env.BOT_TOKEN='  123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890  ';await telegramCall(env,'getMe',{});assert.equal(calls,1);assert.equal((await telegramIdentity(signed(111),env.BOT_TOKEN)).id,111);}finally{globalThis.fetch=original;db.close();}
+});
+test('Poland: PLN, country, range, condition and composite size must all match',async()=>{
+ const {matches}=await import('../server/domain.js');const {marketFields}=await import('../server/catalog.js');
+ const s={...search,...marketFields({...search,country:'pl',currency:'PLN',minPrice:30,condition:'Bardzo dobry'})};
+ const item={title:'Wełniana marynarka',brand:'COS',size:'M / 38',condition:'Bardzo dobry',country:'pl',currency:'PLN',price:49};
+ assert.equal(matches(s,item),true);
+ for(const patch of [{currency:'EUR'},{country:'lt'},{price:29},{price:61},{condition:'Dobry'},{brand:'Arket'},{size:'S / 36'}])assert.equal(matches(s,{...item,...patch}),false);
+ assert.throws(()=>marketFields({...search,country:'pl',currency:'EUR'}));
+ assert.throws(()=>marketFields({...search,country:'pl',minPrice:100}));
+});
+test('Catalog record normalizer checks item identity, Polish currency and image host without inventing missing data',async()=>{
+ const {normalizeCatalogRows}=await import('../cloudflare/catalog-records.js');
+ const row={itemId:'1234567890',url:'https://www.vinted.pl/items/1234567890-marynarka',title:'Marynarka COS',brand:'COS',size:'M / 38',condition:'Bardzo dobry',price:49,currency:'PLN',country:'pl',imageUrl:'https://images1.vinted.net/t/example.webp'};
+ const item=normalizeCatalogRows([row,row])[0];assert.equal(item.id,'vinted:pl:1234567890');assert.equal(item.photoUrl,row.imageUrl);assert.equal(normalizeCatalogRows([row,row]).length,1);
+ for(const patch of [{url:'https://evil.example/items/1234567890'},{url:'https://www.vinted.pl/items/99999999-test'},{currency:'EUR'},{imageUrl:'https://vinted.net.evil.example/a.jpg'},{imageUrl:'http://127.0.0.1/a.jpg'}])assert.throws(()=>normalizeCatalogRows([{...row,...patch}]));
+ const sparse=normalizeCatalogRows([{...row,brand:null,size:null,imageUrl:null}])[0];assert.equal(sparse.brand,'');assert.equal(sparse.size,'');assert.equal(sparse.photoUrl,null);
+
+});
+test('Photo notifications keep the item link and only fall back for an invalid image',async()=>{
+ const {notificationFor,sendNotification}=await import('../cloudflare/notifications.js');
+ const item={title:'Marynarka',brand:'COS',size:'M',condition:'Bardzo dobry',price:49,currency:'PLN',photoUrl:'https://images1.vinted.net/t/example.webp',url:'https://www.vinted.pl/items/1234567890-test'};
+ const n=notificationFor(search,item);assert.equal(n.payload.method,'sendPhoto');assert.ok(n.payload.caption.includes('49 zł'));assert.equal(n.payload.reply_markup.inline_keyboard[0][0].url,item.url);
+ const job={payload:JSON.stringify(n.payload),text:n.fallbackText,chatId:'111'},calls=[];
+ await sendNotification({},job,async(_e,method,body)=>{calls.push({method,body});return true;});assert.equal(calls[0].method,'sendPhoto');assert.equal(calls[0].body.chat_id,'111');
+ const badImage=Object.assign(Error('Telegram: failed to get HTTP URL content'),{errorCode:400});
+ calls.length=0;await sendNotification({},job,async(_e,method,body)=>{calls.push({method,body});if(method==='sendPhoto')throw badImage;return true;});assert.equal(calls[1].method,'sendMessage');assert.ok(calls[1].body.text.includes(item.url));
+ await assert.rejects(()=>sendNotification({},job,async()=>{throw Object.assign(Error('Too many requests'),{errorCode:429});}),/Too many/);
+});
+test('Real catalog pipeline queues individual photos atomically and isolates matches from another market',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='authorized-feed';env.AUTHORIZED_FEED_CONFIRMED='true';
+ await owner('/login',{password:env.APP_PASSWORD});
+ assert.equal((await owner('/searches',{...search,country:'pl',currency:'PLN',minPrice:30,condition:'Bardzo dobry'})).status,201);
+ db.prepare("UPDATE users SET chatId='111',notifications=1 WHERE id='owner'").run();
+ const item={id:'vinted:pl:1234567890',title:'Marynarka COS',brand:'COS',size:'M / 38',country:'pl',currency:'PLN',condition:'Bardzo dobry',price:49,url:'https://www.vinted.pl/items/1234567890-test',photoUrl:'https://images1.vinted.net/t/example.webp'};
+ await owner('/admin/feed',{permissionConfirmed:true,items:[item,{...item,id:'other-country',country:'lt',currency:'EUR'}]},'PUT');
+ await monitor(env,{send:false});assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,1);
+ assert.equal(JSON.parse(db.prepare('SELECT payload FROM outbox').get().payload).method,'sendPhoto');
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return Response.json({ok:true,result:{message_id:1}});};
+ try{await deliver(env);assert.equal(calls.length,1);assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,item.photoUrl);await monitor(env,{force:true});assert.equal(calls.length,1);}finally{globalThis.fetch=original;db.close();}
 });
