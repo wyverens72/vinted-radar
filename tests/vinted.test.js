@@ -23,3 +23,22 @@ test('Public fetch is bounded, never replays cookies, follows no redirects and r
  await assert.rejects(()=>fetchCatalog(url,async()=>new Response(html,{headers:{'content-type':'text/html','content-length':'99999999'}})),/размер/);
  assert.throws(()=>catalogUrl({country:'lt'}),/Польшу/);
 });
+
+test('Retry-After seconds are not parsed as a year; dates and invalid values are bounded',async()=>{
+ const {retryDelay}=await import('../cloudflare/catalog-diagnostics.js');
+ const now=Date.parse('2026-10-24T12:00:00Z');
+ assert.equal(retryDelay('120',now),120000);assert.equal(retryDelay('3600',now),3600000);
+ assert.equal(retryDelay('Sat, 24 Oct 2026 12:02:00 GMT',now),120000);
+ assert.equal(retryDelay('Sat, 24 Oct 2026 11:00:00 GMT',now),0);
+ assert.equal(retryDelay(null,now),0);assert.equal(retryDelay('invalid',now),0);
+});
+test('Failure diagnostic retains evidence but excludes cookies, challenge URLs and tokens',async()=>{
+ const {failureDiagnostic}=await import('../cloudflare/catalog-diagnostics.js');
+ const r=new Response('<title>Too many requests</title><script>secret_in_script</script><p>datadome enable JavaScript https://example.test/challenge?token=abcdef abcdefghijklmnopqrstuvwxyz123456789</p>',{status:429,headers:{'content-type':'text/html','set-cookie':'sensitive=secret','retry-after':'120',server:'test-edge','x-private-token':'secret'}});
+ const d=await failureDiagnostic(r,1),serialized=JSON.stringify(d);
+ assert.equal(d.status,429);assert.equal(d.headers['retry-after'],'120');assert.ok(d.signals.includes('datadome'));assert.ok(d.signals.includes('rate-limit'));
+ for(const secret of ['sensitive','secret_in_script','example.test','abcdefghijklmnopqrstuvwxyz123456789','x-private-token'])assert.ok(!serialized.includes(secret));
+ let cancelled=false;
+ const stream=new ReadableStream({pull(c){c.enqueue(new TextEncoder().encode('x'.repeat(65536)));},cancel(){cancelled=true;}});
+ const bounded=await failureDiagnostic(new Response(stream,{status:403}));assert.ok(cancelled);assert.ok(bounded.excerpt.length<=400);
+});

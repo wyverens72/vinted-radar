@@ -29,3 +29,6 @@
 
 
 2026-10-24 activation: owner explicitly revoked the demo/authorized-only prerequisite. Production now reports DATA_SOURCE=vinted-public (deployment 05be48f8-0908-4193-8be6-1532063ec95f). Existing cooldown preserved until 2026-10-24 16:01:57 Europe/Vilnius. Owner demo search paused; starter COS / M / Poland / max 60 PLN / 5 min created. Manual check confirmed the saved cooldown without requesting Vinted. No live cloud listings or real photo deliveries yet. UI status verified and screenshot saved outside repository. Frontend build succeeded; collector code unchanged from the 23-test passing version.
+
+
+2026-10-24 diagnosis update: 26 tests pass. Fixed numeric Retry-After incorrectly competing with Date.parse as a year; this was a potential bug, not a proven cause of the observed refusal. Added bounded, redacted failure metadata and owner-only read endpoint. Cloudflare deployed d716f768-4ec0-44a4-b88d-68a0e90117fd, existing cooldown untouched. One Mac comparison using exactly the Worker URL and honest User-Agent returned 200, 96 parsed cards, 9 matching COS/M up to 60 PLN. No Mac results imported into production. GitHub one-request diagnostic prepared; result pending.

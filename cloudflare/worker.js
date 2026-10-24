@@ -136,6 +136,10 @@ async function router(request,env,ctx){
   await telegramCall(env,'setChatMenuButton',{menu_button:{type:'web_app',text:'Мой радар',web_app:{url:env.PUBLIC_URL}}});
   return json({ok:true,botUrl:`https://t.me/${me.username}`});
  }
+ if(path==='/api/admin/catalog/diagnostic'&&method==='GET'){
+  admin();const saved=await getSetting(env,'vintedDiagnostic');
+  return json({diagnostic:saved?JSON.parse(saved):null,blockedUntil:Number(await getSetting(env,'vintedBlockedUntil')||0),lastError:await getSetting(env,'vintedLastError')||null});
+ }
  if(path==='/api/admin/catalog/check'&&method==='POST'){
   admin();if(!await limit(env,'catalog-check',1,60000))fail('Повторная проверка доступна через минуту',429);
   const items=await readCatalog(env,{country:'pl',query:'',brand:'COS',minPrice:0,maxPrice:100});

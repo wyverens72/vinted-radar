@@ -206,3 +206,17 @@ test('Public scheduled scan with fresh pages stays within the Free query budget'
  try{reset();let job;await worker.scheduled({},env,{waitUntil:p=>{job=p;}});await job;assert.equal(calls,3);assert.ok(count()<=50,`D1 statements: ${count()}`);assert.equal(db.prepare('SELECT count(*) n FROM searches WHERE lastChecked IS NOT NULL').get().n,3);}
  finally{globalThis.fetch=original;db.close();}
 });
+
+test('Catalog diagnostic is owner-only, read-only and retains safe response evidence during cooldown',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';await owner('/login',{password:env.APP_PASSWORD});
+ const original=globalThis.fetch;let calls=0;
+ globalThis.fetch=async()=>{calls++;return new Response('<title>Too many requests</title>',{status:429,headers:{'retry-after':'120','set-cookie':'never-store=secret','content-type':'text/html'}});};
+ try{
+  const {readCatalog}=await import('../cloudflare/vinted.js');
+  await assert.rejects(()=>readCatalog(env,{country:'pl',query:'',brand:'COS',minPrice:0,maxPrice:60}),/429/);
+  const before=Date.now();const saved=await (await owner('/admin/catalog/diagnostic')).json();
+  assert.equal(saved.diagnostic.status,429);assert.ok(saved.blockedUntil-before<=3600000);assert.ok(saved.blockedUntil-before>3500000);
+  assert.equal(saved.diagnostic.headers['set-cookie'],undefined);assert.equal((await client(env)('/admin/catalog/diagnostic')).status,401);
+  await assert.rejects(()=>readCatalog(env,{country:'pl',query:'',brand:'COS',minPrice:0,maxPrice:60}),/приостановлен/);assert.equal(calls,1);
+ }finally{globalThis.fetch=original;db.close();}
+});

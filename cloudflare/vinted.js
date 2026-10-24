@@ -1,5 +1,6 @@
 import {normalizeCatalogRows} from './catalog-records.js';
 import {one,run,getSetting,setSetting,lease,release} from './data.js';
+import {failureDiagnostic,retryDelay} from './catalog-diagnostics.js';
 const MAX_BYTES=8*1024*1024,TTL=300000;
 const decode=s=>String(s||'').replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt|nbsp);/gi,(_,e)=>{if(e[0]==='#'){const n=e[1].toLowerCase()==='x'?parseInt(e.slice(2),16):Number(e.slice(1));return n>0&&n<=0x10ffff?String.fromCodePoint(n):'�';}return {amp:'&',quot:'"',apos:"'",lt:'<',gt:'>',nbsp:' '}[e.toLowerCase()];});
 const text=s=>decode(s.replace(/<[^>]*>/g,'')).replace(/\s+/g,' ').trim();
@@ -41,7 +42,7 @@ export async function fetchCatalog(url,fetcher=fetch){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
  try{
   const r=await fetcher(u.href,{headers:{Accept:'text/html','User-Agent':'VintedRadar/1.0 (public catalog monitor)'},redirect:'manual',signal:controller.signal});
-  if(!r.ok){const e=Error(`Vinted вернул HTTP ${r.status}. Повторные запросы временно приостановлены.`);e.blocked=[401,403,429].includes(r.status);const retry=r.headers.get('retry-after');e.retryAfter=retry?Math.max(Number(retry)*1000||0,Date.parse(retry)-Date.now()||0):0;throw e;}
+  if(!r.ok){const e=Error(`Vinted вернул HTTP ${r.status}. Повторные запросы временно приостановлены.`);e.blocked=[401,403,429].includes(r.status);e.retryAfter=retryDelay(r.headers.get('retry-after'));e.diagnostic=await failureDiagnostic(r);throw e;}
   if(!r.headers.get('content-type')?.includes('text/html'))throw Error('Vinted вернул ответ в неизвестном формате');
   if(Number(r.headers.get('content-length')||0)>MAX_BYTES)throw Error('Страница Vinted превышает допустимый размер');
   if(!r.body)throw Error('Пустой ответ Vinted');
@@ -63,7 +64,7 @@ export async function readCatalog(env,search){
   await run(env,'INSERT INTO catalog_cache(url,items,fetchedAt) VALUES(?,?,?) ON CONFLICT(url) DO UPDATE SET items=excluded.items,fetchedAt=excluded.fetchedAt',url,JSON.stringify(items),now);
   await setSetting(env,'vintedLastSuccess',Date.now());await setSetting(env,'vintedLastError','');
   return items;
- }catch(e){await setSetting(env,'vintedLastError',String(e.message).slice(0,300));if(e.blocked)await setSetting(env,'vintedBlockedUntil',now+Math.max(3600000,e.retryAfter||0));throw e;}
+ }catch(e){await setSetting(env,'vintedLastError',String(e.message).slice(0,300));if(e.diagnostic)await setSetting(env,'vintedDiagnostic',JSON.stringify(e.diagnostic));if(e.blocked)await setSetting(env,'vintedBlockedUntil',now+Math.max(3600000,e.retryAfter||0));throw e;}
  finally{await release(env,key,token);}
 }
 // Changing filters starts a fresh baseline rather than flooding the chat with old inventory.

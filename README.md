@@ -130,3 +130,8 @@ Apify не используется. `cloudflare/vinted.js` строит адр�
 Владелец может выполнить POST `/api/admin/catalog/check` с сессией и заголовком `X-Radar-Client: 1`: проверка COS до 100 PLN без создания поисков и уведомлений, не чаще раза в минуту, с общим кэшем и той же паузой. Ответ не содержит cookies Vinted.
 
 `cloudflare/catalog-records.js` проверяет ID, ссылки, валюту и CDN фотографий. Тестовая HTML-карточка получена из публичной выдачи 24 октября 2026 года; формат может измениться.
+
+
+### Connectivity diagnostics
+
+Failure responses now retain only bounded, redacted error evidence and an allowlist of headers (never Set-Cookie or full HTML). The owner can read GET /api/admin/catalog/diagnostic without issuing another Vinted request. Retry-After numeric seconds and HTTP dates are parsed separately. The manual GitHub workflow Catalog connectivity diagnostic makes exactly one transparent public request, with no session, proxy, retries, import or monitoring schedule. Standard Linux runners in this public repository are used; no paid runner or artifact upload is configured.
