@@ -49,3 +49,12 @@ test('failed delivery remains queued and retries instead of dropping matches',as
  assert.ok(delivered>0);assert.equal(db.prepare('SELECT COUNT(*) n FROM outbox WHERE sentAt IS NULL').get().n,0);
  db.prepare('DELETE FROM searches').run();assert.equal(db.prepare('SELECT COUNT(*) n FROM matches').get().n,0);db.close();
 });
+
+test('Size selections use OR, ignore case, preserve composite labels and never mix numeric systems',()=>{
+ const item={title:'COS',brand:'COS',size:'M / 38',price:30,currency:'EUR'};
+ for(const size of ['s, m','M','38','','S, M, L'])assert.equal(matches({...s,size},item),true);
+ for(const size of ['S, L','EU 38','XS'])assert.equal(matches({...s,size},item),false);
+ assert.equal(matches({...s,brand:'cos',size:'m'},item),true);
+ assert.equal(validateSearch({...s,size:'s, S, M'}).size,'s, M');
+ assert.throws(()=>validateSearch({...s,size:Array.from({length:11},(_,i)=>'EU '+i).join(',')}));
+});

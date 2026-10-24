@@ -1,4 +1,4 @@
-import {photoUrl,markets,normalized} from './catalog.js';
+import {photoUrl,markets,normalized,sizeSelections} from './catalog.js';
 export function validateItems(items) {
   if(!Array.isArray(items)||items.length>5000) throw Error('Источник должен содержать массив до 5000 товаров');
   const ids=new Set();
@@ -15,14 +15,18 @@ export function validateItems(items) {
 export function matches(search,item) {
   const words=normalized(search.query).split(' ').filter(Boolean),title=normalized(`${item.title} ${item.brand}`);
   const sizes=normalized(item.size).split('/').map(s=>s.trim());
-  return words.every(w=>title.includes(w))&&(!search.brand||normalized(item.brand)===normalized(search.brand))&&(!search.size||normalized(item.size)===normalized(search.size)||sizes.includes(normalized(search.size)))&&(!search.condition||normalized(item.condition)===normalized(search.condition))&&item.price<=search.maxPrice&&item.price>=(search.minPrice||0)&&(item.currency||'EUR')===(search.currency||'EUR')&&(!search.country||item.country===search.country);
+  const selected=sizeSelections(search.size).map(normalized);
+  return words.every(w=>title.includes(w))&&(!search.brand||normalized(item.brand)===normalized(search.brand))&&(!selected.length||selected.some(s=>normalized(item.size)===s||sizes.includes(s)))&&(!search.condition||normalized(item.condition)===normalized(search.condition))&&item.price<=search.maxPrice&&item.price>=(search.minPrice||0)&&(item.currency||'EUR')===(search.currency||'EUR')&&(!search.country||item.country===search.country);
 }
 export function validateSearch(input) {
   const out={};
-  for(const [key,max] of [['name',80],['query',120],['brand',80],['size',30]]) {
+  for(const [key,max] of [['name',80],['query',120],['brand',80],['size',160]]) {
     if(typeof input[key]!=='string'||input[key].trim().length>max) throw Error('Проверьте текстовые поля');
     out[key]=input[key].trim();
   }
+  const selected=sizeSelections(out.size);
+  if(selected.length>10||selected.some(s=>s.length>40))throw Error('Выберите до 10 размеров');
+  out.size=selected.join(', ');
   if(!out.name||(!out.query&&!out.brand)) throw Error('Укажите название и запрос или бренд');
   out.maxPrice=Number(input.maxPrice); out.intervalMinutes=Number(input.intervalMinutes);
   if(!Number.isFinite(out.maxPrice)||out.maxPrice<1||out.maxPrice>100000||![1,5,15,30,60].includes(out.intervalMinutes)||typeof input.enabled!=='boolean') throw Error('Проверьте цену и интервал');

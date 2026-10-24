@@ -255,3 +255,11 @@ test('Telegram test uses a real photo only from the signed-in users own matches'
  try{const r=await owner('/telegram/test',{});assert.equal(r.status,200);assert.equal((await r.json()).photo,true);assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,item.photoUrl);assert.equal(calls[0].body.chat_id,'111');}
  finally{globalThis.fetch=original;db.close();}
 });
+
+test('Multiple size choices survive API save, reload and pause updates without changing old searches',async()=>{
+ const {env,db}=fixture(),owner=client(env);await owner('/login',{password:env.APP_PASSWORD});
+ const saved=await (await owner('/searches',{...search,country:'pl',currency:'PLN',size:'s, S, M'})).json();
+ let state=await (await owner('/state')).json(),item=state.searches.find(s=>s.id===saved.id);assert.equal(item.size,'s, M');
+ assert.equal((await owner('/searches/'+item.id,{...item,enabled:false},'PUT')).status,200);
+ state=await (await owner('/state')).json();item=state.searches.find(s=>s.id===saved.id);assert.equal(item.size,'s, M');assert.equal(item.enabled,false);db.close();
+});

@@ -146,3 +146,9 @@ Up to three distinct active Polish catalog URLs are selected per run, oldest cac
 Workflow: .github/workflows/collect-catalog.yml; collector: scripts/collect-catalog.js. The workflow is manual or scheduled, never triggered from untrusted pull requests. A distributed lease prevents overlapping imports. HTTP 401/403/429 or unrecognised markup causes a shared pause of at least one hour, respecting longer Retry-After values. No retries within a run and no automatic network switching occur. Existing Cloudflare cooldown is retained separately.
 
 The first successful result fills the feed without sending old inventory to Telegram. Later new matches are queued separately with a photo and link. The existing Telegram test button uses a real photo from the signed-in user's matches when available, and reports whether Telegram actually returned a photo.
+
+### Brand and size selection
+
+Search forms use a searchable single-brand dialog and a multi-size sheet. Brand suggestions come from the signed-in user's loaded matches and saved searches; this is not the complete official Vinted brand taxonomy. Any other brand name can be entered explicitly. Comparison ignores case and normalizes whitespace but does not translate spelling or aliases.
+
+Sizes are stored in the existing size field as comma-separated choices (up to 10). Any selected size may match; an empty selection means all sizes. Letter case is ignored. Composite listing labels such as M / 38 match M or 38; regional labels such as EU 38 and UK 10 are not automatically equated. Existing single-size searches remain valid. The picker offers letter sizes and exact labels in the user's listings; custom labels can be added.

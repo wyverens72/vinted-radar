@@ -8,6 +8,10 @@ export function photoUrl(value){
  return u.href;
 }
 export const normalized=s=>String(s??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
+export function sizeSelections(value){
+ const seen=new Set();
+ return String(value??'').split(',').map(v=>v.trim()).filter(v=>{const key=normalized(v);if(!key||seen.has(key))return false;seen.add(key);return true;});
+}
 export function marketFields(input){
  const country=input.country??'lt',market=markets[country];
  if(!market)throw Error('Поддерживаются каталоги Польши и Литвы');
