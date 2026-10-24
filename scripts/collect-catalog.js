@@ -1,4 +1,4 @@
-import {catalogUrl,fetchCatalog} from '../cloudflare/vinted.js';
+import {fetchCatalog} from '../cloudflare/vinted.js';
 import {setTimeout as pause} from 'node:timers/promises';
 const base=process.env.RADAR_URL,token=process.env.CATALOG_COLLECTOR_TOKEN;
 if(!base||new URL(base).protocol!=='https:'||!/^[a-f0-9]{64}$/.test(token||''))throw Error('Collector configuration is missing');
@@ -11,7 +11,7 @@ const work=await api('jobs',{});
 if(work.blockedUntil){console.log('Catalog is paused until '+new Date(work.blockedUntil).toISOString());}
 else if(work.busy){console.log('Another collector is running');}
 else{
- let loaded=0,imported=0;
+ let loaded=0,imported=0,failed=false;
  try{
   for(const {url} of work.jobs){
    // Only an internally supported, canonical public search URL is accepted.
@@ -22,10 +22,10 @@ else{
     await api('import',{lease:work.lease,url,items,fetchedAt:Date.now()});loaded++;imported+=items.length;
    }catch(e){
     await api('failure',{lease:work.lease,url,status:e.diagnostic?.status||0,blocked:!!e.blocked,retryAfter:e.retryAfter||0});
-    console.log('Catalog request failed; no retries or network switching.');break;
+    failed=true;console.log('Catalog request failed; no retries or network switching.');break;
    }
    if(loaded<work.jobs.length)await pause(3000);
   }
-  console.log(JSON.stringify({catalogsLoaded:loaded,recordsImported:imported}));
+  console.log(JSON.stringify({catalogsLoaded:loaded,recordsImported:imported}));if(failed)process.exitCode=1;
  }finally{if(work.lease)await api('finish',{lease:work.lease});}
 }

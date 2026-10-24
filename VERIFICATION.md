@@ -35,3 +35,6 @@
 
 
 2026-10-24: GitHub connectivity diagnostic run 40093744802 returned HTTP 200, 96 records, 9 COS/M matches <=60 PLN. Added dedicated scoped collector, distributed lease, active-URL validation, timestamp validation, no-Cloudflare-fetch mode, persistent per-collector backoff and scheduled public Ubuntu workflow. 28 tests pass, build and Worker dry-run pass; final photo-return change covered by cloud tests. Production collection and photo delivery verification pending below.
+
+
+2026-10-24 production verification: deployed 45d0cca8-b8d3-4cf0-8459-d506c1ae694e with CATALOG_FETCH_MODE=github. GitHub run 40094236006 imported 96 real records (one catalog); Worker monitoring produced 9 real owner matches with photos, no search errors and no Cloudflare source fetch. POST /api/telegram/test returned {ok:true,photo:true}, confirming a real photo message was accepted by Telegram. Live browser feed verified with nine listings and saved screenshot outputs/radar-real-catalog.jpg (outside repository). The workflow schedule is configured; initial end-to-end verification used a manual workflow dispatch. No permanent availability guarantee.
