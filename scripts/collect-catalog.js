@@ -1,4 +1,4 @@
-import {fetchCatalogWindow} from '../cloudflare/vinted.js';
+import {fetchCatalogProgress} from '../cloudflare/vinted.js';
 import {setTimeout as pause} from 'node:timers/promises';
 const base=process.env.RADAR_URL,token=process.env.CATALOG_COLLECTOR_TOKEN;
 if(!base||new URL(base).protocol!=='https:'||!/^[a-f0-9]{64}$/.test(token||''))throw Error('Collector configuration is missing');
@@ -13,13 +13,13 @@ else if(work.busy){console.log('Another collector is running');}
 else{
  let loaded=0,imported=0,failed=false;
  try{
-  for(const {url} of work.jobs){
+  for(const {url,startPage=2} of work.jobs){
    // Only an internally supported, canonical public search URL is accepted.
    const u=new URL(url);
    if(u.origin!=='https://www.vinted.pl'||u.pathname!=='/catalog')throw Error('Unexpected catalog URL');
    try{
-    const {items,pages,reason}=await fetchCatalogWindow(url,{pause:()=>pause(3000)});
-    await api('import',{lease:work.lease,url,items,pages,reason,fetchedAt:Date.now()});loaded++;imported+=items.length;
+    const {items,...progress}=await fetchCatalogProgress(url,{startPage,pause:()=>pause(3000)});
+    await api('import',{lease:work.lease,url,items,...progress,fetchedAt:Date.now()});loaded++;imported+=items.length;
    }catch(e){
     await api('failure',{lease:work.lease,url,status:e.diagnostic?.status||0,blocked:!!e.blocked,retryAfter:e.retryAfter||0});
     failed=true;console.log('Catalog request failed; no retries or network switching.');break;

@@ -11,6 +11,7 @@ import {digest,telegramIdentity} from '../cloudflare/security.js';
 function fixture(){
  const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0003_public_catalog.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/0004_native_filters.sql',import.meta.url),'utf8'));
+ db.exec(readFileSync(new URL('../migrations/0005_catalog_progress.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -179,7 +180,7 @@ test('Real catalog pipeline queues individual photos atomically and isolates mat
  try{await deliver(env);assert.equal(calls.length,1);assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,item.photoUrl);await monitor(env,{force:true});assert.equal(calls.length,1);}finally{globalThis.fetch=original;db.close();}
 });
 
-test('Public monitoring caches identical URLs, baselines without alerts, deduplicates and records blocks per search',async()=>{
+test('Public monitoring caches identical URLs, sends first and later finds, deduplicates and records blocks per search',async()=>{
  const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';
  await owner('/login',{password:env.APP_PASSWORD});
  const pl={...search,country:'pl',currency:'PLN',size:'S',maxPrice:100};
@@ -188,11 +189,11 @@ test('Public monitoring caches identical URLs, baselines without alerts, dedupli
  const html=readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'),original=globalThis.fetch;let calls=0;
  globalThis.fetch=async()=>{calls++;return new Response(html,{headers:{'content-type':'text/html'}});};
  try{
-  await monitor(env,{send:false});assert.equal(calls,1);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);
+  await monitor(env,{send:false});assert.equal(calls,1);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,2);
   db.exec('UPDATE catalog_cache SET fetchedAt=0');
   globalThis.fetch=async()=>{calls++;return new Response(html.replaceAll('10508917416','10508917417'),{headers:{'content-type':'text/html'}});};
-  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,2);
-  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,2);
+  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,4);
+  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,4);
   db.exec('UPDATE catalog_cache SET fetchedAt=0');globalThis.fetch=async()=>{calls++;return new Response('blocked',{status:403});};
   await monitor(env,{force:true,send:false});assert.equal(calls,3);assert.equal(db.prepare('SELECT count(*) n FROM searches WHERE error IS NOT NULL').get().n,2);
   await monitor(env,{force:true,send:false});assert.equal(calls,3);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,4);
@@ -234,7 +235,9 @@ test('Dedicated collector can import only active public catalogs; cloud never fe
  assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items,fetchedAt:1})).status,400);
  assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items:[{...items[0],url:'https://evil.test/items/10508917416'}],fetchedAt:Date.now()})).status,400);
  db.prepare("INSERT INTO settings VALUES('vintedBlockedUntil',?)").run(String(Date.now()+3600000));
- assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items,fetchedAt:Date.now()})).status,200);
+ assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items,pages:5,nextPage:6,complete:false,checkedThrough:5,reason:'continuing',fetchedAt:Date.now()})).status,200);
+ assert.equal(db.prepare('SELECT nextPage FROM catalog_progress').get().nextPage,6);
+ assert.match(db.prepare('SELECT coverage FROM searches').get().coverage,/5/);
  const original=globalThis.fetch;let requests=0;globalThis.fetch=async()=>{requests++;throw Error('No cloud fetch allowed');};
  try{
   await monitor(env,{send:false});assert.equal(requests,0);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,1);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);
@@ -299,4 +302,25 @@ test('Public registration respects atomic account quota and never takes owner ro
  for(let i=0;i<9;i++)assert.ok(await registerTelegram(env,{id:2000+i,first_name:'User'}));
  assert.equal(await registerTelegram(env,{id:9000}),null);assert.equal(db.prepare('SELECT count(*) n FROM users').get().n,10);
  assert.equal(db.prepare("SELECT count(*) n FROM users WHERE role='owner'").get().n,1);db.close();
+});
+
+test('Older findings paginate tied timestamps without duplicates or another users records',async()=>{
+ const {env,db}=fixture(),owner=client(env);await owner('/login',{password:env.APP_PASSWORD});const saved=await (await owner('/searches',search)).json();
+ const insert=db.prepare('INSERT INTO matches(searchId,itemId,item,foundAt) VALUES(?,?,?,?)');
+ db.exec('BEGIN');for(let n=0;n<650;n++)insert.run(saved.id,'item-'+String(n).padStart(4,'0'),JSON.stringify({id:'item-'+String(n).padStart(4,'0'),title:'Test',brand:'COS',size:'M',price:20,currency:'EUR',demo:true}),100);db.exec('COMMIT');
+ db.prepare("INSERT INTO users(id,telegramId,name,role,createdAt) VALUES('other','500','Other','member',0)").run();
+ db.prepare("INSERT INTO searches(id,userId,name,query,brand,size,maxPrice,intervalMinutes,createdAt) VALUES('other-search','other','Private','','COS','',50,5,0)").run();insert.run('other-search','secret',JSON.stringify({id:'secret',demo:true}),100);
+ const state=await (await owner('/state')).json();assert.equal(state.items.length,500);const last=state.items.at(-1);
+ const page=await (await owner('/items?'+new URLSearchParams({before:String(last.foundAt),search:last.searchId,item:last.id}))).json();assert.equal(page.items.length,150);assert.equal(page.more,false);assert.equal(new Set([...state.items,...page.items].map(i=>i.id)).size,650);assert.ok(!page.items.some(i=>i.id==='secret'));
+ db.close();
+});
+
+test('Historical first-pass finds are queued once and stay deduplicated after delivery history cleanup',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';env.CATALOG_FETCH_MODE='github';await owner('/login',{password:env.APP_PASSWORD});
+ const saved=await (await owner('/searches',{...search,country:'pl',currency:'PLN',size:'S',maxPrice:100})).json();db.prepare("UPDATE users SET notifications=1,chatId='111' WHERE id='owner'").run();
+ const {parseCatalog,catalogUrl}=await import('../cloudflare/vinted.js');const item=parseCatalog(readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'))[0];
+ db.prepare('INSERT INTO matches(searchId,itemId,item,foundAt) VALUES(?,?,?,?)').run(saved.id,item.id,JSON.stringify(item),1);
+ const s=db.prepare('SELECT * FROM searches WHERE id=?').get(saved.id);db.prepare('INSERT INTO catalog_cache VALUES(?,?,?)').run(catalogUrl(s),'[]',Date.now());
+ await monitor(env,{force:true,send:false});assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,1);assert.equal(db.prepare('SELECT notified FROM matches').get().notified,1);
+ db.exec('DELETE FROM outbox');await monitor(env,{force:true,send:false});assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);db.close();
 });

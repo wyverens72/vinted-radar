@@ -7,7 +7,7 @@ const decode=s=>String(s||'').replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt|nb
 const text=s=>decode(s.replace(/<[^>]*>/g,'')).replace(/\s+/g,' ').trim();
 function attrs(tag){const out={};for(const m of tag.matchAll(/([\w-]+)\s*=\s*(["'])(.*?)\2/gs))out[m[1]]=decode(m[3]);return out;}
 export function catalogUrl(search){
- if(search.country!=='pl')throw Error('Публичный сборщик сейчас поддерживает Польшу. Выберите Польшу и бюджет в zł в настройках поиска.');
+ if(search.country!=='pl')throw Error('Пока ищем вещи только в Польше. Выберите Польшу и бюджет в zł.');
  if(search.catalogUrl)return nativeCatalog(search.catalogUrl);
  const u=new URL('https://www.vinted.pl/catalog');
  u.searchParams.set('search_text',[search.query,search.brand].filter(Boolean).join(' ').trim());
@@ -59,7 +59,7 @@ export async function readCatalog(env,search){
  const url=catalogUrl(search),now=Date.now();
  const cached=await one(env,'SELECT * FROM catalog_cache WHERE url=?',url);
  if(cached&&cached.fetchedAt>now-(env.CATALOG_FETCH_MODE==='github'?20*60000:TTL))return JSON.parse(cached.items);
- if(env.CATALOG_FETCH_MODE==='github')throw Error('Ожидаем свежую загрузку каталога от сборщика. Обычно обновление занимает около 15 минут.');
+ if(env.CATALOG_FETCH_MODE==='github')throw Error('Ожидаем результаты поиска. Обычно это занимает несколько минут.');
  if(Number(await getSetting(env,'vintedBlockedUntil')||0)>now)throw Error('Vinted временно приостановлен после отказа доступа. Следующая попытка — не раньше чем через час после отказа.');
  const key='catalog:'+url,token=await lease(env,key,30000);if(!token)throw Error('Этот каталог уже проверяется. Попробуйте позже.');
  try{
@@ -86,4 +86,23 @@ export async function fetchCatalogWindow(url,{fetchPage=fetchCatalog,pause=async
   if(page<maxPages)await pause();
  }
  return {items:[...unique.values()],pages,reason};
+}
+
+// Check newest listings every run while continuing the older inventory scan.
+// Nothing from a partially failed scan is imported; the saved cursor advances only on success.
+export async function fetchCatalogProgress(url,{startPage=2,fetchPage=fetchCatalog,pause=async()=>{}}={}){
+ if(startPage!==null&&(!Number.isInteger(startPage)||startPage<2||startPage>10000))throw Error('Invalid scan cursor');
+ const unique=new Map();let pages=0,complete=startPage===null,nextPage=startPage||2,reason='continuing',checkedThrough=(startPage||2)-1;
+ const targets=startPage===null?[1,2]:[1,...Array.from({length:4},(_,i)=>startPage+i).filter(p=>p<=10000)];
+ for(const page of targets){
+  const u=new URL(url);if(page>1)u.searchParams.set('page',String(page));
+  const items=await fetchPage(u.href);pages++;
+  const added=items.filter(i=>!unique.has(i.id)).length;
+  for(const item of items)unique.set(item.id,item);
+  if(page>1){checkedThrough=Math.max(checkedThrough,page);nextPage=page+1;}
+  if(!items.length||!added){complete=true;reason=!items.length?'empty':'repeated';break;}
+  if(page===10000){complete=true;reason='bound';break;}
+  if(page!==targets.at(-1))await pause();
+ }
+ return {items:[...unique.values()],pages,nextPage:Math.min(nextPage,10000),complete,checkedThrough,reason};
 }

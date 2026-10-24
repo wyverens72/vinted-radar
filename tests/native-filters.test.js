@@ -16,3 +16,13 @@ test('Pagination deduplicates, bounds requests, and never accepts a partially fa
  assert.deepEqual(result.items.map(i=>i.id),['a','b','c']);assert.equal(result.pages,2);assert.equal(result.reason,'limit');
  await assert.rejects(fetchCatalogWindow('https://www.vinted.pl/catalog',{fetchPage:async u=>{if(new URL(u).searchParams.has('page'))throw Error('429');return [{id:'a'}];}}));
 });
+
+test('Deep scan refreshes newest page and resumes old inventory without skipping failed pages',async()=>{
+ const {fetchCatalogProgress}=await import('../cloudflare/vinted.js');const seen=[];
+ const first=await fetchCatalogProgress('https://www.vinted.pl/catalog',{fetchPage:async u=>{const p=Number(new URL(u).searchParams.get('page')||1);seen.push(p);return [{id:'page-'+p}];}});
+ assert.deepEqual(seen,[1,2,3,4,5]);assert.equal(first.nextPage,6);assert.equal(first.complete,false);
+ const second=await fetchCatalogProgress('https://www.vinted.pl/catalog',{startPage:first.nextPage,fetchPage:async u=>{const p=Number(new URL(u).searchParams.get('page')||1);return p===7?[]:[{id:'page-'+p}];}});
+ assert.equal(second.complete,true);assert.equal(second.reason,'empty');assert.deepEqual(second.items.map(i=>i.id),['page-1','page-6']);
+ await assert.rejects(fetchCatalogProgress('https://www.vinted.pl/catalog',{startPage:6,fetchPage:async u=>{if(new URL(u).searchParams.get('page')==='6')throw Error('blocked');return [{id:'new'}];}}));
+ const finished=[];await fetchCatalogProgress('https://www.vinted.pl/catalog',{startPage:null,fetchPage:async u=>{finished.push(Number(new URL(u).searchParams.get('page')||1));return [{id:u}];}});assert.deepEqual(finished,[1,2]);
+});

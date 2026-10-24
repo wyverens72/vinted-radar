@@ -2,7 +2,7 @@ import {validateItems} from '../server/domain.js';
 import {markets,photoUrl} from '../server/catalog.js';
 // Normalize explicitly supplied catalog records; this module performs no network requests.
 export function normalizeCatalogRows(input){
- if(!Array.isArray(input)||input.length>200)throw Error('До 200 строк в импортируемом наборе');
+ if(!Array.isArray(input)||input.length>500)throw Error('До 500 строк в импортируемом наборе');
  const ids=new Set(),result=[];
  for(const row of input){
   if(!row||!/^\d{1,20}$/.test(String(row.itemId)))throw Error('В наборе нет корректного itemId');

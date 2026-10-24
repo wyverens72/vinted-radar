@@ -12,8 +12,8 @@ const json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{stat
 function fail(message,status=400){const e=new Error(message);e.status=status;throw e;}
 async function body(request){
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Ожидается JSON',415);
- if(Number(request.headers.get('Content-Length')||0)>200000)fail('Слишком большой запрос',413);
- const text=await request.text();if(text.length>200000)fail('Слишком большой запрос',413);
+ if(Number(request.headers.get('Content-Length')||0)>1000000)fail('Слишком большой запрос',413);
+ const text=await request.text();if(text.length>1000000)fail('Слишком большой запрос',413);
  try{const b=JSON.parse(text);if(!b||typeof b!=='object'||Array.isArray(b))throw Error();return b;}catch{fail('Неверный JSON');}
 }
 async function identity(request,env){
@@ -71,10 +71,16 @@ async function router(request,env,ctx){
  if(path==='/api/state'&&method==='GET'){
   const [searches,items,pending]=await Promise.all([
    rows(env,'SELECT * FROM searches WHERE userId=? ORDER BY createdAt DESC',u.id),
-   rows(env,`SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND (?=1 OR COALESCE(json_extract(m.item,'$.demo'),0)=0) ORDER BY m.foundAt DESC LIMIT 500`,u.id,Number(!env.DATA_SOURCE||env.DATA_SOURCE==='demo')),
+   rows(env,`SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND (?=1 OR COALESCE(json_extract(m.item,'$.demo'),0)=0) ORDER BY m.foundAt DESC,m.searchId DESC,m.itemId DESC LIMIT 500`,u.id,Number(!env.DATA_SOURCE||env.DATA_SOURCE==='demo')),
    one(env,'SELECT count(*) n FROM outbox o JOIN searches s ON o.searchId=s.id WHERE s.userId=? AND o.sentAt IS NULL',u.id)
   ]);
   return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',catalog:env.DATA_SOURCE==='vinted-public'?{mode:env.CATALOG_FETCH_MODE==='github'?'github':'cloudflare',blockedUntil:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorBlockedUntil':'vintedBlockedUntil')||0),lastError:await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastError':'vintedLastError')||null,lastSuccess:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastSuccess':'vintedLastSuccess')||0)}:null,telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
+ }
+ if(path==='/api/items'&&method==='GET'){
+  const before=Number(url.searchParams.get('before')),search=url.searchParams.get('search'),item=url.searchParams.get('item');
+  if(!Number.isSafeInteger(before)||before<0||!search||search.length>160||!item||item.length>160)fail('Не удалось загрузить предыдущие находки');
+  const items=await rows(env,`SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND (?=1 OR COALESCE(json_extract(m.item,'$.demo'),0)=0) AND (m.foundAt,m.searchId,m.itemId)<(?,?,?) ORDER BY m.foundAt DESC,m.searchId DESC,m.itemId DESC LIMIT 200`,u.id,Number(!env.DATA_SOURCE||env.DATA_SOURCE==='demo'),before,search,item);
+  return json({items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite})),more:items.length===200});
  }
  if(path==='/api/searches'&&method==='POST'){
   const input=await body(request),s={...validateSearch(input),...marketFields(input),catalogUrl:nativeCatalog(input.catalogUrl)};

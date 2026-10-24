@@ -24,15 +24,18 @@ export async function deliver(env){
  if(!env.BOT_TOKEN)return;
  const token=await lease(env,'delivery');if(!token)return;
  try{
-  const pending=await rows(env,`SELECT * FROM (SELECT o.*,u.id userId,u.chatId,ROW_NUMBER() OVER (PARTITION BY u.chatId ORDER BY o.nextAttempt,o.createdAt,o.id) position FROM outbox o JOIN searches s ON s.id=o.searchId JOIN users u ON u.id=s.userId WHERE o.sentAt IS NULL AND o.nextAttempt<=? AND u.enabled=1 AND u.notifications=1 AND u.chatId IS NOT NULL) WHERE position=1 ORDER BY nextAttempt,createdAt,id LIMIT 5`,Date.now());
-  const sentChats=new Set();
+  const pending=await rows(env,`SELECT * FROM (SELECT o.*,u.id userId,u.chatId,ROW_NUMBER() OVER (PARTITION BY u.chatId ORDER BY o.nextAttempt,o.createdAt,o.id) position FROM outbox o JOIN searches s ON s.id=o.searchId JOIN users u ON u.id=s.userId WHERE o.sentAt IS NULL AND o.nextAttempt<=? AND u.enabled=1 AND u.notifications=1 AND u.chatId IS NOT NULL) WHERE position<=5 ORDER BY position,nextAttempt,createdAt,id LIMIT 5`,Date.now());
+  const sentChats=new Set(),blockedChats=new Set();
   for(const job of pending){
-   // One message per chat per scheduled invocation avoids a burst into that chat.
-   if(sentChats.has(job.chatId))continue;sentChats.add(job.chatId);
+   // Send queued cards gradually, and stop this chat on a Telegram rate limit.
+   if(blockedChats.has(job.chatId))continue;
+   if(sentChats.has(job.chatId))await new Promise(resolve=>setTimeout(resolve,1100));
+   sentChats.add(job.chatId);
    try{
     await sendNotification(env,job,telegramCall);
     await env.DB.batch([env.DB.prepare('UPDATE outbox SET sentAt=? WHERE id=?').bind(Date.now(),job.id),env.DB.prepare('UPDATE users SET notificationError=NULL WHERE id=?').bind(job.userId)]);
    }catch(e){
+    if(e.errorCode===429)blockedChats.add(job.chatId);
     await env.DB.batch([env.DB.prepare('UPDATE outbox SET attempts=attempts+1,nextAttempt=? WHERE id=?').bind(Date.now()+Math.max((e.retryAfter||0)*1000,Math.min(3600000,60000*2**Math.min(job.attempts,6))),job.id),env.DB.prepare('UPDATE users SET notificationError=? WHERE id=?').bind(e.message,job.userId)]);
    }
   }
@@ -55,13 +58,17 @@ export async function monitor(env,{userId=null,force=false,send=true}={}){
    const claim=await run(env,'UPDATE searches SET nextCheck=? WHERE id=? AND nextCheck=?',now+Math.max(s.intervalMinutes,5)*60000,s.id,s.nextCheck);
    if(!claim.meta.changes)continue;
    try{
-   const live=env.DATA_SOURCE==='vinted-public',key=live?catalogSearchKey(s):null,baseline=live&&s.catalogKey!==key;
+   const live=env.DATA_SOURCE==='vinted-public',key=live?catalogSearchKey(s):null;
    const sourceItems=live?await readCatalog(env,s):items;
-   const selected=sourceItems.filter(i=>matches(s,i)).slice(0,200);
+   const selected=sourceItems.filter(i=>matches(s,i)).slice(0,500);
    const envelopes=selected.map(item=>({item,...notificationFor(s,item)}));
+   const notify=!!(env.BOT_TOKEN&&s.notifications&&s.chatId&&env.DATA_SOURCE&&env.DATA_SOURCE!=='demo');
+   const pendingHistory=notify?await rows(env,'SELECT item FROM matches WHERE searchId=? AND notified=0 ORDER BY foundAt DESC LIMIT 100',s.id):[];
+   const notices=[...new Map([...envelopes,...pendingHistory.map(m=>{const item=JSON.parse(m.item);return {item,...notificationFor(s,item)};})].map(e=>[e.item.id,e])).values()];
    const statements=[env.DB.prepare(`INSERT OR IGNORE INTO matches(searchId,itemId,item,foundAt) SELECT ?,json_extract(value,'$.item.id'),json_extract(value,'$.item'),? FROM json_each(?)`).bind(s.id,now,JSON.stringify(envelopes))];
    if(env.BOT_TOKEN&&s.notifications&&s.chatId&&(env.DATA_SOURCE==='demo'||!env.DATA_SOURCE))statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text) SELECT ?,?,?,? || group_concat('• ' || json_extract(item,'$.title') || ' · ' || json_extract(item,'$.price') || CASE WHEN json_extract(item,'$.currency')='PLN' THEN ' zł' ELSE ' €' END,char(10)) || ? FROM (SELECT item FROM matches WHERE searchId=? AND foundAt=? LIMIT 5) HAVING count(*)>0`).bind(crypto.randomUUID(),s.id,'batch:'+now,`${env.DATA_SOURCE==='demo'?'🧪 ДЕМО · ':''}${s.name}\nНовые совпадения (первые 5):\n`,env.PUBLIC_URL?'\nВсе находки: '+env.PUBLIC_URL:'',s.id,now));
-   if(!baseline&&env.BOT_TOKEN&&s.notifications&&s.chatId&&env.DATA_SOURCE&&env.DATA_SOURCE!=='demo')statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text,payload,createdAt) SELECT 'item:'||?||':'||json_extract(e.value,'$.item.id'),?,json_extract(e.value,'$.item.id'),json_extract(e.value,'$.fallbackText'),json_extract(e.value,'$.payload'),? FROM json_each(?) e JOIN matches m ON m.searchId=? AND m.itemId=json_extract(e.value,'$.item.id') WHERE m.foundAt=?`).bind(s.id,s.id,now,JSON.stringify(envelopes),s.id,now));
+   if(notify)statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text,payload,createdAt) SELECT 'item:'||?||':'||json_extract(e.value,'$.item.id'),?,json_extract(e.value,'$.item.id'),json_extract(e.value,'$.fallbackText'),json_extract(e.value,'$.payload'),? FROM json_each(?) e JOIN matches m ON m.searchId=? AND m.itemId=json_extract(e.value,'$.item.id') WHERE m.notified=0`).bind(s.id,s.id,now,JSON.stringify(notices),s.id));
+   if(notify)statements.push(env.DB.prepare("UPDATE matches SET notified=1 WHERE searchId=? AND notified=0 AND EXISTS(SELECT 1 FROM outbox o WHERE o.searchId=matches.searchId AND o.itemId=matches.itemId)").bind(s.id));
    statements.push(env.DB.prepare('UPDATE searches SET lastChecked=?,error=NULL,catalogKey=? WHERE id=?').bind(now,key,s.id));
    const result=await env.DB.batch(statements);found+=result[0].meta.changes;
    }catch(e){failed++;await run(env,'UPDATE searches SET error=?,nextCheck=? WHERE id=?',String(e.message).slice(0,300),now+Math.max(s.intervalMinutes,5)*60000,s.id);if(env.DATA_SOURCE!=='vinted-public')throw e;}
