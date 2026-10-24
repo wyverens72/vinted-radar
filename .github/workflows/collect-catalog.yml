@@ -1,0 +1,26 @@
+name: Collect public catalog
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: collect-public-catalog
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Collect public listings without login or proxies
+        env:
+          RADAR_URL: https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev
+          CATALOG_COLLECTOR_TOKEN: ${{ secrets.CATALOG_COLLECTOR_TOKEN }}
+        run: node scripts/collect-catalog.js

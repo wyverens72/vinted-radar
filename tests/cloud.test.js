@@ -220,3 +220,38 @@ test('Catalog diagnostic is owner-only, read-only and retains safe response evid
   await assert.rejects(()=>readCatalog(env,{country:'pl',query:'',brand:'COS',minPrice:0,maxPrice:60}),/приостановлен/);assert.equal(calls,1);
  }finally{globalThis.fetch=original;db.close();}
 });
+
+test('Dedicated collector can import only active public catalogs; cloud never fetches in GitHub mode',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';env.CATALOG_FETCH_MODE='github';env.CATALOG_COLLECTOR_TOKEN='a'.repeat(64);
+ await owner('/login',{password:env.APP_PASSWORD});await owner('/searches',{...search,country:'pl',currency:'PLN',size:'S'});
+ const call=async(path,b,token=env.CATALOG_COLLECTOR_TOKEN)=>worker.fetch(new Request('https://radar.example/api/collector/'+path,{method:'POST',headers:{Authorization:'Bearer '+token,'X-Radar-Client':'1','Content-Type':'application/json'},body:JSON.stringify(b)}),env,{});
+ assert.equal((await call('jobs',{},'wrong')).status,401);
+ const work=await (await call('jobs',{})).json();assert.equal(work.jobs.length,1);assert.ok(work.lease);
+ assert.equal((await call('import',{lease:'wrong',url:work.jobs[0].url,items:[]})).status,409);
+ assert.equal((await call('import',{lease:work.lease,url:'https://evil.test/catalog',items:[]})).status,400);
+ const {parseCatalog}=await import('../cloudflare/vinted.js');const items=parseCatalog(readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'));
+ assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items,fetchedAt:1})).status,400);
+ assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items:[{...items[0],url:'https://evil.test/items/10508917416'}],fetchedAt:Date.now()})).status,400);
+ db.prepare("INSERT INTO settings VALUES('vintedBlockedUntil',?)").run(String(Date.now()+3600000));
+ assert.equal((await call('import',{lease:work.lease,url:work.jobs[0].url,items,fetchedAt:Date.now()})).status,200);
+ const original=globalThis.fetch;let requests=0;globalThis.fetch=async()=>{requests++;throw Error('No cloud fetch allowed');};
+ try{
+  await monitor(env,{send:false});assert.equal(requests,0);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,1);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);
+  const state=await (await owner('/state')).json();assert.equal(state.catalog.mode,'github');assert.equal(state.catalog.blockedUntil,0);assert.ok(state.catalog.lastSuccess>0);
+  assert.ok(Number(db.prepare("SELECT value FROM settings WHERE key='vintedBlockedUntil'").get().value)>Date.now());
+  db.exec('UPDATE catalog_cache SET fetchedAt=0');await monitor(env,{force:true,send:false});assert.equal(requests,0);assert.match(db.prepare('SELECT error FROM searches').get().error,/Ожидаем/);
+ }finally{globalThis.fetch=original;}
+ await call('failure',{lease:work.lease,url:work.jobs[0].url,status:429,blocked:true,retryAfter:7200000});
+ await call('finish',{lease:work.lease});const paused=await (await call('jobs',{})).json();assert.equal(paused.jobs.length,0);assert.ok(paused.blockedUntil>Date.now()+7100000);
+ const denied=await worker.fetch(new Request('https://radar.example/api/admin/readiness',{headers:{Authorization:'Bearer '+env.CATALOG_COLLECTOR_TOKEN}}),env,{});assert.equal(denied.status,401);db.close();
+});
+
+test('Telegram test uses a real photo only from the signed-in users own matches',async()=>{
+ const {env,db}=fixture(),owner=client(env);await owner('/login',{password:env.APP_PASSWORD});const s=await (await owner('/searches',{...search,country:'pl',currency:'PLN'})).json();
+ const {parseCatalog}=await import('../cloudflare/vinted.js');const item=parseCatalog(readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'))[0];
+ db.prepare("UPDATE users SET chatId='111',notifications=1 WHERE id='owner'").run();
+ db.prepare('INSERT INTO matches(searchId,itemId,item,foundAt) VALUES(?,?,?,?)').run(s.id,item.id,JSON.stringify(item),Date.now());
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,o)=>{calls.push({url,body:JSON.parse(o.body)});return Response.json({ok:true,result:{message_id:1,photo:[{file_id:'test'}]}});};
+ try{const r=await owner('/telegram/test',{});assert.equal(r.status,200);assert.equal((await r.json()).photo,true);assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,item.photoUrl);assert.equal(calls[0].body.chat_id,'111');}
+ finally{globalThis.fetch=original;db.close();}
+});

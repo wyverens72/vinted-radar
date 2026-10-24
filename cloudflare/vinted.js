@@ -56,7 +56,8 @@ export async function fetchCatalog(url,fetcher=fetch){
 export async function readCatalog(env,search){
  const url=catalogUrl(search),now=Date.now();
  const cached=await one(env,'SELECT * FROM catalog_cache WHERE url=?',url);
- if(cached&&cached.fetchedAt>now-TTL)return JSON.parse(cached.items);
+ if(cached&&cached.fetchedAt>now-(env.CATALOG_FETCH_MODE==='github'?20*60000:TTL))return JSON.parse(cached.items);
+ if(env.CATALOG_FETCH_MODE==='github')throw Error('Ожидаем свежую загрузку каталога от сборщика. Обычно обновление занимает около 15 минут.');
  if(Number(await getSetting(env,'vintedBlockedUntil')||0)>now)throw Error('Vinted временно приостановлен после отказа доступа. Следующая попытка — не раньше чем через час после отказа.');
  const key='catalog:'+url,token=await lease(env,key,30000);if(!token)throw Error('Этот каталог уже проверяется. Попробуйте позже.');
  try{

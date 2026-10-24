@@ -1,4 +1,6 @@
 import {readCatalog} from './vinted.js';
+import {collectorRoute} from './collector.js';
+import {notificationFor,sendNotification} from './notifications.js';
 import {marketFields} from '../server/catalog.js';
 import {validateSearch,validateItems} from '../server/domain.js';
 import {digest,random,equal,cookie,telegramIdentity} from './security.js';
@@ -27,6 +29,7 @@ async function router(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
  if(path==='/api/health')return json({ok:true,runtime:'cloudflare'});
+ if(path.startsWith('/api/collector/'))return collectorRoute(request,env,body);
  if(path==='/api/telegram/webhook'){
   if(method!=='POST'||!env.TELEGRAM_WEBHOOK_SECRET||!equal(request.headers.get('X-Telegram-Bot-Api-Secret-Token'),env.TELEGRAM_WEBHOOK_SECRET))return json({error:'Запрещено'},403);
   if(Number(request.headers.get('Content-Length')||0)>100000)return json({error:'Too large'},413);
@@ -70,7 +73,7 @@ async function router(request,env,ctx){
    rows(env,`SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND (?=1 OR COALESCE(json_extract(m.item,'$.demo'),0)=0) ORDER BY m.foundAt DESC LIMIT 500`,u.id,Number(!env.DATA_SOURCE||env.DATA_SOURCE==='demo')),
    one(env,'SELECT count(*) n FROM outbox o JOIN searches s ON o.searchId=s.id WHERE s.userId=? AND o.sentAt IS NULL',u.id)
   ]);
-  return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',catalog:env.DATA_SOURCE==='vinted-public'?{blockedUntil:Number(await getSetting(env,'vintedBlockedUntil')||0),lastError:await getSetting(env,'vintedLastError')||null,lastSuccess:Number(await getSetting(env,'vintedLastSuccess')||0)}:null,telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
+  return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',catalog:env.DATA_SOURCE==='vinted-public'?{mode:env.CATALOG_FETCH_MODE==='github'?'github':'cloudflare',blockedUntil:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorBlockedUntil':'vintedBlockedUntil')||0),lastError:await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastError':'vintedLastError')||null,lastSuccess:Number(await getSetting(env,env.CATALOG_FETCH_MODE==='github'?'collectorLastSuccess':'vintedLastSuccess')||0)}:null,telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
  }
  if(path==='/api/searches'&&method==='POST'){
   const input=await body(request),s={...validateSearch(input),...marketFields(input)};
@@ -103,6 +106,12 @@ async function router(request,env,ctx){
  if(path==='/api/telegram/test'&&method==='POST'){
   if(!u.chatId||!u.notifications)fail('Отправьте своему боту /start');
   if(!await limit(env,'test:'+u.id,3,60000))fail('Подождите минуту',429);
+  const sample=await one(env,`SELECT m.item FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND COALESCE(json_extract(m.item,'$.demo'),0)=0 AND json_extract(m.item,'$.photoUrl') IS NOT NULL ORDER BY m.foundAt DESC LIMIT 1`,u.id);
+  if(sample){
+   const n=notificationFor({name:'✓ Проверка радара · реальное объявление'},JSON.parse(sample.item));
+   const sent=await sendNotification(env,{chatId:u.chatId,payload:JSON.stringify(n.payload),text:n.fallbackText},telegramCall);
+   return json({ok:true,photo:!!sent?.photo?.length});
+  }
   await telegramCall(env,'sendMessage',{chat_id:u.chatId,text:'✓ Личный Vinted Radar подключён. Ваши уведомления приходят в этот чат.'});return json({ok:true});
  }
  if(path==='/api/export'&&method==='GET')return json({version:2,searches:(await rows(env,'SELECT name,query,brand,size,maxPrice,minPrice,condition,country,currency,intervalMinutes,enabled FROM searches WHERE userId=?',u.id)).map(s=>({...s,enabled:!!s.enabled}))},200,{'Content-Disposition':'attachment; filename="radar-searches.json"'});

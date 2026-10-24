@@ -4,7 +4,7 @@
 
 Личный радар находок: React PWA, Telegram Mini App и Telegram-бот. Облачная версия работает на Cloudflare Workers + D1 + Cron Triggers; ориентирована на бесплатный тариф и небольшую группу приглашённых пользователей.
 
-**Собственный сборщик публичного Vinted.pl включён по подтверждению владельца.** Он читает первую страницу HTML без входа и отправки cookies. С компьютера получен HTTP 200 и разобраны 96 карточек; предыдущая проверка с Cloudflare получила HTTP 429. Сохранённая пауза после отказа доступа не сбрасывается при публикации. Текущий статус показан в приложении. Наличие технического доступа не означает разрешения Vinted. Проект не связан с Vinted.
+**Собственный сборщик публичного Vinted.pl включён по подтверждению владельца. Текущая схема: GitHub Actions собирает, Cloudflare хранит и уведомляет; Mac не нужен.** Он читает первую страницу HTML без входа и отправки cookies. С компьютера получен HTTP 200 и разобраны 96 карточек; предыдущая проверка с Cloudflare получила HTTP 429. Сохранённая пауза после отказа доступа не сбрасывается при публикации. Текущий статус показан в приложении. Наличие технического доступа не означает разрешения Vinted. Проект не связан с Vinted.
 
 ## Возможности
 
@@ -135,3 +135,14 @@ Apify не используется. `cloudflare/vinted.js` строит адр�
 ### Connectivity diagnostics
 
 Failure responses now retain only bounded, redacted error evidence and an allowlist of headers (never Set-Cookie or full HTML). The owner can read GET /api/admin/catalog/diagnostic without issuing another Vinted request. Retry-After numeric seconds and HTTP dates are parsed separately. The manual GitHub workflow Catalog connectivity diagnostic makes exactly one transparent public request, with no session, proxy, retries, import or monitoring schedule. Standard Linux runners in this public repository are used; no paid runner or artifact upload is configured.
+
+
+### Free collection without an always-on Mac
+
+`CATALOG_FETCH_MODE=github` makes Cloudflare read the shared catalog cache only. It never requests Vinted or falls back to another network in this mode. A separate standard Ubuntu GitHub Actions runner invokes the same transparent collector every 15 minutes (minutes 7, 22, 37, 52). A one-request diagnostic returned HTTP 200 with 96 parsed cards. No login, proxy, CAPTCHA solution or identity spoofing is used. Availability is not guaranteed; GitHub scheduled runs can be delayed or dropped, and public-repository schedules can be disabled after 60 days of inactivity. Standard runners are free in public repositories; no larger runners, artifacts or paid services are configured.
+
+Up to three distinct active Polish catalog URLs are selected per run, oldest cache first. With more than three URLs the effective refresh interval increases. The dedicated CATALOG_COLLECTOR_TOKEN secret is stored only in Cloudflare and GitHub Actions. Its endpoints accept only fresh, validated records for currently active catalog URLs and cannot access owner sessions, invitations, Telegram credentials or account settings. The local .collector-secrets.json is ignored and must never be committed or shared.
+
+Workflow: .github/workflows/collect-catalog.yml; collector: scripts/collect-catalog.js. The workflow is manual or scheduled, never triggered from untrusted pull requests. A distributed lease prevents overlapping imports. HTTP 401/403/429 or unrecognised markup causes a shared pause of at least one hour, respecting longer Retry-After values. No retries within a run and no automatic network switching occur. Existing Cloudflare cooldown is retained separately.
+
+The first successful result fills the feed without sending old inventory to Telegram. Later new matches are queued separately with a photo and link. The existing Telegram test button uses a real photo from the signed-in user's matches when available, and reports whether Telegram actually returned a photo.

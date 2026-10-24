@@ -11,4 +11,5 @@ backups/
 .dev.vars
 .dev.vars.*
 .cloudflare-secrets*
+.collector-secrets*
 wrangler.local.jsonc

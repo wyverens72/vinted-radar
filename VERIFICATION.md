@@ -32,3 +32,6 @@
 
 
 2026-10-24 diagnosis update: 26 tests pass. Fixed numeric Retry-After incorrectly competing with Date.parse as a year; this was a potential bug, not a proven cause of the observed refusal. Added bounded, redacted failure metadata and owner-only read endpoint. Cloudflare deployed d716f768-4ec0-44a4-b88d-68a0e90117fd, existing cooldown untouched. One Mac comparison using exactly the Worker URL and honest User-Agent returned 200, 96 parsed cards, 9 matching COS/M up to 60 PLN. No Mac results imported into production. GitHub one-request diagnostic prepared; result pending.
+
+
+2026-10-24: GitHub connectivity diagnostic run 40093744802 returned HTTP 200, 96 records, 9 COS/M matches <=60 PLN. Added dedicated scoped collector, distributed lease, active-URL validation, timestamp validation, no-Cloudflare-fetch mode, persistent per-collector backoff and scheduled public Ubuntu workflow. 28 tests pass, build and Worker dry-run pass; final photo-return change covered by cloud tests. Production collection and photo delivery verification pending below.
