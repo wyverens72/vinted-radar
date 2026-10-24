@@ -332,11 +332,11 @@ test('Current-page finds overtake older queued selections without claiming publi
  const {parseCatalog,catalogUrl,catalogSearchKey}=await import('../cloudflare/vinted.js');const base=parseCatalog(readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'))[0];
  const s=db.prepare('SELECT * FROM searches WHERE id=?').get(saved.id);
  const initial=[{...base,catalogPage:8}];db.prepare('INSERT INTO catalog_cache VALUES(?,?,?)').run(catalogUrl(s),JSON.stringify(initial),Date.now());
- await monitor(env,{force:true,send:false});let queued=db.prepare('SELECT * FROM outbox').all();assert.equal(queued[0].priority,0);assert.match(queued[0].text,/Подборка по вашему поиску/);
+ await monitor(env,{force:true,send:false});let queued=db.prepare('SELECT * FROM outbox').all();assert.equal(queued[0].priority,0);assert.ok(!queued[0].text.includes('Подборка по вашему поиску'));
  const recent={...base,id:'vinted:pl:99999999999',title:'Current page result',catalogPage:1};db.prepare('UPDATE catalog_cache SET items=?,fetchedAt=?').run(JSON.stringify([recent]),Date.now());
- await monitor(env,{force:true,send:false});queued=db.prepare('SELECT * FROM outbox ORDER BY priority DESC').all();assert.equal(queued[0].priority,2);assert.equal(queued[0].itemId,recent.id);assert.match(queued[0].text,/Найдено в начале выдачи/);assert.ok(!queued[0].text.includes('Опубликовано'));
+ await monitor(env,{force:true,send:false});queued=db.prepare('SELECT * FROM outbox ORDER BY priority DESC').all();assert.equal(queued[0].priority,2);assert.equal(queued[0].itemId,recent.id);assert.ok(!queued[0].text.includes('Найдено в начале выдачи'));assert.ok(!queued[0].text.includes('Опубликовано'));
  const original=globalThis.fetch,sent=[];globalThis.fetch=async(url,o)=>{sent.push(JSON.parse(o.body));return Response.json({ok:true,result:{message_id:sent.length}});};
- try{await deliver(env);assert.match(sent[0].caption,/Current page result/);assert.match(sent[1].caption,/Подборка по вашему поиску/);}finally{globalThis.fetch=original;db.close();}
+ try{await deliver(env);assert.match(sent[0].caption,/Current page result/);assert.ok(!sent[1].caption.includes('Подборка по вашему поиску'));}finally{globalThis.fetch=original;db.close();}
 });
 
 test('Search sorting roundtrips through API and demotes the previous mode queue',async()=>{

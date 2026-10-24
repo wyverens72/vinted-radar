@@ -1,6 +1,6 @@
 import {currencyLabel} from '../server/catalog.js';
-export function notificationFor(search,item,{label=''}={}){
- const caption=[label,search.name,item.title,`${item.brand||'Бренд не указан'} · ${item.size||'Размер не указан'}`,`${item.price} ${currencyLabel(item.currency)}`,item.condition].filter(Boolean).join('\n').slice(0,900).replace(/[\uD800-\uDBFF]$/,'');
+export function notificationFor(search,item){
+ const caption=[search.name,item.title,`${item.brand||'Бренд не указан'} · ${item.size||'Размер не указан'}`,`${item.price} ${currencyLabel(item.currency)}`,item.condition].filter(Boolean).join('\n').slice(0,900).replace(/[\uD800-\uDBFF]$/,'');
  const text=caption+(item.url?'\n'+item.url:'');
  const reply_markup=item.url?{inline_keyboard:[[{text:'Открыть на Vinted ↗',url:item.url}]]}:undefined;
  return {fallbackText:text,payload:item.photoUrl?{method:'sendPhoto',photo:item.photoUrl,caption,reply_markup,fallbackText:text}:{method:'sendMessage',text,reply_markup,link_preview_options:{is_disabled:true}}};
