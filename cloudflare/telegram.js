@@ -40,7 +40,7 @@ export async function handleUpdate(env,update){
  if(cmd==='/start'){
   await run(env,'UPDATE users SET chatId=?,notifications=1,notificationError=NULL WHERE id=?',chatId,user.id);
   const loginToken=await newLoginCode(env,user.id);
-  await telegramCall(env,'sendMessage',{chat_id:chatId,text:'Ваш личный радар подключён ✓\nАккаунт создан через Telegram. Ваши поиски и избранное доступны только вам. Новые находки будут приходить сюда.\nОткрыть приложение — внутри Telegram. Войти на сайт — в браузере (ссылка на 5 минут). Не пересылайте ссылку входа. /stop — отключить уведомления.'+(env.DATA_SOURCE==='demo'?'\nСейчас включены демонстрационные товары.':''),reply_markup:{inline_keyboard:[[{text:'Открыть мой радар',web_app:{url:env.PUBLIC_URL}}],[{text:'Войти на сайт',url:env.PUBLIC_URL+'/#login='+loginToken}]]}});
+  await telegramCall(env,'sendMessage',{chat_id:chatId,text:'Привет! Это Vinted Radar 🔎\n\nВыбери, какие вещи искать на Vinted, — я пришлю находки с фото, ценой и ссылкой.\n\nНажми «Открыть мой радар», чтобы настроить поиск.\nСсылку входа не пересылай. /stop — отключить сообщения.'+(env.DATA_SOURCE==='demo'?'\nСейчас включены демонстрационные товары.':''),reply_markup:{inline_keyboard:[[{text:'Открыть мой радар',web_app:{url:env.PUBLIC_URL}}],[{text:'Войти на сайт',url:env.PUBLIC_URL+'/#login='+loginToken}]]}});
  }else if(cmd==='/login'){
   const token=await newLoginCode(env,user.id);
   await telegramCall(env,'sendMessage',{chat_id:chatId,text:'Вход в браузере. Ссылка действует 5 минут и используется один раз. Откройте её самостоятельно; не пересылайте.',reply_markup:{inline_keyboard:[[{text:'Войти на сайт',url:env.PUBLIC_URL+'/#login='+token}]]}});
