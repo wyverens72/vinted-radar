@@ -6,9 +6,11 @@ export function demoItems(now=Date.now()){
  return items.map(([brand,title,size,price,kind,color],n)=>({id:`demo-${batch}-${n}`,brand,title:`${title}${batch%2?' · подборка II':''}`,size,price,currency:'EUR',url:null,kind,color,demo:true}));
 }
 export async function telegramCall(env,method,body){
- if(!env.BOT_TOKEN)throw Error('Telegram ещё не настроен');
+ const token=env.BOT_TOKEN?.trim();
+ if(!token)throw Error('Telegram ещё не настроен');
+ if(!/^\d+:[A-Za-z0-9_-]{20,100}$/.test(token))throw Error('BOT_TOKEN имеет неверный формат. Скопируйте из BotFather только строку вида 123456:ABC..., без кавычек и ссылки.');
  let response;
- try{response=await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});}catch{throw Error('Telegram временно недоступен');}
+ try{response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});}catch{throw Error('Telegram временно недоступен');}
  const data=await response.json();
  if(!data.ok){const err=new Error(`Telegram: ${String(data.description||response.status).slice(0,160)}`);err.retryAfter=data.parameters?.retry_after;throw err;}
  return data.result;

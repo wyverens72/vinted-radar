@@ -4,3 +4,8 @@ dist
 data
 .git
 *.zip
+.dev.vars*
+.cloudflare-secrets*
+.wrangler
+backups
+work

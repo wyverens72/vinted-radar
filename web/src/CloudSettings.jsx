@@ -6,7 +6,7 @@ export function CloudSettings({state,api,action,busy}){
   if(!owner)return;
   try{const [r,m,i]=await Promise.all([api('/admin/readiness'),api('/admin/members'),api('/admin/invites')]);setReadiness(r);setMembers(m.members);setInvites(i.invites);}catch(e){setError(e.message);}
  }
- useEffect(()=>{refresh();},[]);
+ useEffect(()=>{refresh();if(!owner)return;const timer=setInterval(refresh,30000);return()=>clearInterval(timer);},[owner,state.user?.id]);
  return <>
  <section><h2>Ваш личный аккаунт</h2><p>Вы вошли как <strong>{state.user.name}</strong>. У каждого пользователя свои поиски, избранное и получатель Telegram-уведомлений.</p>{state.telegram.botUrl&&<a className="text-link" href={state.telegram.botUrl} target="_blank" rel="noreferrer">Открыть бота ↗</a>}<p>Чтобы войти в Safari или на Mac, отправьте боту <code>/login</code>. Он выдаст одноразовую ссылку на пять минут.</p></section>
  <section><h2>Подключение Vinted</h2><p>Вход через обычный аккаунт Vinted пока недоступен. Радар не запрашивает пароль или cookies Vinted и не использует ваш аккаунт для просмотра.</p><p>{state.source==='demo'?'Сейчас все находки — демонстрационные. Для реальных объявлений нужен разрешённый источник данных.':'Подключён отдельный разрешённый источник. Это не авторизация через Vinted.'}</p><a className="text-link" href="https://pro-docs.svc.vinted.com/" target="_blank" rel="noreferrer">Официальная документация Vinted ↗</a></section>

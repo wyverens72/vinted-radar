@@ -4,7 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {createHmac} from 'node:crypto';
 import worker from '../cloudflare/worker.js';
-import {monitor,deliver} from '../cloudflare/monitor.js';
+import {monitor,deliver,telegramCall} from '../cloudflare/monitor.js';
 import {acceptInvite,newLoginCode} from '../cloudflare/telegram.js';
 import {digest,telegramIdentity} from '../cloudflare/security.js';
 // Uses real SQLite for the D1 SQL surface and atomic batch semantics. Wrangler checks the actual Worker bundle separately.
@@ -18,10 +18,10 @@ function fixture(){
   async all(){count++;return {results:db.prepare(this.sql).all(...this.args)};}
   async run(){count++;const r=db.prepare(this.sql).run(...this.args);return {success:true,results:[],meta:{changes:r.changes}};}
  }
- const env={DB:{prepare:sql=>new Statement(sql),batch:async statements=>{db.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}}},APP_PASSWORD:'test-owner-password-32-characters',DATA_SOURCE:'demo',PUBLIC_URL:'https://radar.example',BOT_TOKEN:'test-bot-token',BOT_USERNAME:'TestRadarBot',TELEGRAM_OWNER_ID:'111',TELEGRAM_WEBHOOK_SECRET:'test-webhook-secret'};
+ const env={DB:{prepare:sql=>new Statement(sql),batch:async statements=>{db.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}}},APP_PASSWORD:'test-owner-password-32-characters',DATA_SOURCE:'demo',PUBLIC_URL:'https://radar.example',BOT_TOKEN:'123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890',BOT_USERNAME:'TestRadarBot',TELEGRAM_OWNER_ID:'111',TELEGRAM_WEBHOOK_SECRET:'test-webhook-secret'};
  return {db,env,count:()=>count,reset:()=>{count=0;}};
 }
-function signed(id,token='test-bot-token',timestamp=Math.floor(Date.now()/1000)){
+function signed(id,token='123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890',timestamp=Math.floor(Date.now()/1000)){
  const p=new URLSearchParams({auth_date:String(timestamp),query_id:'test',user:JSON.stringify({id,first_name:'User '+id})});
  const text=[...p.entries()].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>`${k}=${v}`).join('\n');
  const secret=createHmac('sha256','WebAppData').update(token).digest();p.set('hash',createHmac('sha256',secret).update(text).digest('hex'));return p.toString();
@@ -33,9 +33,9 @@ function client(env){let cookie='';return async(path,body,method=body?'POST':'GE
 };}
 test('Cloud auth: fresh Telegram identity, owner binding, no unauthorised self-registration',async()=>{
  const {env,db}=fixture(),request=client(env);
- assert.equal((await telegramIdentity(signed(111),'test-bot-token')).id,111);
- assert.equal(await telegramIdentity(signed(111,'bad'),'test-bot-token'),null);
- assert.equal(await telegramIdentity(signed(111,'test-bot-token',1),'test-bot-token'),null);
+ assert.equal((await telegramIdentity(signed(111),'123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890')).id,111);
+ assert.equal(await telegramIdentity(signed(111,'bad'),'123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890'),null);
+ assert.equal(await telegramIdentity(signed(111,'123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890',1),'123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890'),null);
  assert.equal((await request('/login',{initData:signed(222)})).status,401);
  assert.equal(db.prepare('SELECT count(*) n FROM users').get().n,1);
  assert.equal((await request('/login',{initData:signed(111)})).status,200);
@@ -131,4 +131,10 @@ test('Cloud notification retry retains matches and marks delivery after recovery
   globalThis.fetch=async()=>{delivered++;return Response.json({ok:true,result:{message_id:1}});};await deliver(env);
   assert.equal(delivered,1);assert.ok(db.prepare('SELECT sentAt FROM outbox').get().sentAt);await monitor(env,{force:true});assert.equal(delivered,1);
  }finally{globalThis.fetch=original;db.close();}
+});
+
+test('Cloud token validation rejects wrong format and normalizes surrounding whitespace',async()=>{
+ const {env,db}=fixture();const original=globalThis.fetch;let calls=0;
+ globalThis.fetch=async url=>{calls++;assert.ok(!url.includes('%20'));return Response.json({ok:true,result:{username:'TestRadarBot'}});};
+ try{env.BOT_TOKEN='@TestRadarBot';await assert.rejects(()=>telegramCall(env,'getMe',{}),/неверный формат/);assert.equal(calls,0);env.BOT_TOKEN='  123456:TEST_ONLY_NOT_A_REAL_TOKEN_1234567890  ';await telegramCall(env,'getMe',{});assert.equal(calls,1);assert.equal((await telegramIdentity(signed(111),env.BOT_TOKEN)).id,111);}finally{globalThis.fetch=original;db.close();}
 });

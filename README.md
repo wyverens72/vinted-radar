@@ -68,7 +68,7 @@ GitHub Actions проверяет исходники на push; автомати
 
 1. Создайте бота через официальный @BotFather (`/newbot`).
 2. В Cloudflare откройте ваш Worker → Settings → Variables and Secrets.
-3. Добавьте секрет `BOT_TOKEN`; строки `BOT_USERNAME` (без @), `TELEGRAM_OWNER_ID` (числовой ID владельца) и `PUBLIC_URL`. `TELEGRAM_WEBHOOK_SECRET` — отдельный случайный секрет, минимум 24 символа.
+3. Добавьте секреты `BOT_TOKEN` и `TELEGRAM_OWNER_ID` (числовой ID владельца); строки `BOT_USERNAME` (без @) и `PUBLIC_URL`. `TELEGRAM_WEBHOOK_SECRET` — отдельный случайный секрет, минимум 24 символа.
 4. Разверните изменение настроек. Войдите на сайт по паролю владельца.
 5. Подключение → **Подключить Telegram webhook**. Кнопка регистрирует webhook, команды и меню Mini App. После неё локальный старый polling с тем же токеном запускать нельзя.
 6. Отправьте боту /start, затем проверьте тестовое сообщение в приложении.

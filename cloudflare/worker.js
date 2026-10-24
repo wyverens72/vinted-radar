@@ -123,7 +123,7 @@ async function router(request,env,ctx){
   await env.DB.batch(statements);return json({ok:true});
  }
  if(path==='/api/admin/readiness'&&method==='GET'){
-  admin();return json({https:url.protocol==='https:',database:!!env.DB,ownerTelegram:!!env.TELEGRAM_OWNER_ID,bot:!!env.BOT_TOKEN,webhookSecret:!!env.TELEGRAM_WEBHOOK_SECRET,botUsername:env.BOT_USERNAME||null,source:env.DATA_SOURCE||'demo',lastScheduled:await getSetting(env,'lastScheduled'),scheduleError:await getSetting(env,'scheduleError')||null});
+  admin();return json({https:url.protocol==='https:',database:!!env.DB,ownerTelegram:!!env.TELEGRAM_OWNER_ID,bot:!!env.BOT_TOKEN,botTokenFormat:/^\d+:[A-Za-z0-9_-]{20,100}$/.test(env.BOT_TOKEN?.trim()||''),webhookSecret:!!env.TELEGRAM_WEBHOOK_SECRET,botUsername:env.BOT_USERNAME||null,source:env.DATA_SOURCE||'demo',lastScheduled:await getSetting(env,'lastScheduled'),scheduleError:await getSetting(env,'scheduleError')||null});
  }
  if(path==='/api/admin/telegram/setup'&&method==='POST'){
   admin();if(!env.TELEGRAM_WEBHOOK_SECRET||!env.BOT_TOKEN||!env.PUBLIC_URL?.startsWith('https://'))fail('Заполните BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET и HTTPS PUBLIC_URL в Cloudflare');
