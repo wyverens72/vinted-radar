@@ -26,3 +26,6 @@
 
 
 2026-10-24: Own public collector implemented. Local unauthenticated GET returned HTTP 200; parser extracted 96 Polish cards, including item price, size, condition, brand, photo and canonical URL. Empty-search HTML verified separately. Cloudflare owner-only diagnostic returned HTTP 429 and recorded an hourly cooldown. No successful live cloud ingestion or real Vinted photo notification claimed. Production DATA_SOURCE remains demo: activation rejected by automatic approval review pending explicit revocation of the earlier demo/authorized-source prerequisite. New tests cover parsing, HTTP blocks, redirects, no cookie replay, bounds, cache, baselines, deduplication, per-search errors and Free D1 budget.
+
+
+2026-10-24 activation: owner explicitly revoked the demo/authorized-only prerequisite. Production now reports DATA_SOURCE=vinted-public (deployment 05be48f8-0908-4193-8be6-1532063ec95f). Existing cooldown preserved until 2026-10-24 16:01:57 Europe/Vilnius. Owner demo search paused; starter COS / M / Poland / max 60 PLN / 5 min created. Manual check confirmed the saved cooldown without requesting Vinted. No live cloud listings or real photo deliveries yet. UI status verified and screenshot saved outside repository. Frontend build succeeded; collector code unchanged from the 23-test passing version.

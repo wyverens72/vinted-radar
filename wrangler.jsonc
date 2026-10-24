@@ -24,7 +24,7 @@
     ]
   },
   "vars": {
-    "DATA_SOURCE": "demo",
+    "DATA_SOURCE": "vinted-public",
     "AUTHORIZED_FEED_CONFIRMED": "false",
     "PUBLIC_URL": "https://vinted-radar-wyverens72.sizayaptashka72-fd2.workers.dev",
     "BOT_USERNAME": "SNvintedradarbot"
