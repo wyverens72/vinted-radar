@@ -32,7 +32,7 @@ export async function collectorRoute(request,env,readBody){
  if(path==='/api/collector/import'){
   if(!Number.isFinite(b.fetchedAt)||b.fetchedAt<Date.now()-5*60000||b.fetchedAt>Date.now()+30000)return json({error:'Данные устарели'},400);
   if(!Array.isArray(b.items)||b.items.length>500)return json({error:'До 500 товаров'},400);
-  const items=normalizeCatalogRows(b.items.map(i=>({itemId:typeof i.id==='string'?i.id.match(/^vinted:pl:(\d+)$/)?.[1]:null,url:i.url,title:i.title,brand:i.brand,size:i.size,condition:i.condition,price:i.price,currency:i.currency,country:i.country,imageUrl:i.photoUrl})));
+  const items=normalizeCatalogRows(b.items.map(i=>({itemId:typeof i.id==='string'?i.id.match(/^vinted:pl:(\d+)$/)?.[1]:null,url:i.url,title:i.title,brand:i.brand,size:i.size,condition:i.condition,price:i.price,currency:i.currency,country:i.country,imageUrl:i.photoUrl,catalogPage:i.catalogPage})));
   // Only records for the configured Polish market, no arbitrary feed URLs or personal data.
   if(items.some(i=>i.country!=='pl'))return json({error:'Только польский каталог'},400);
   const now=Date.now();

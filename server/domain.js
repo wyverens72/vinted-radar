@@ -10,7 +10,8 @@ export function validateItems(items) {
     const country=i.country??(i.currency==='PLN'?'pl':'lt');
     if(!markets[country]||markets[country].currency!==i.currency)throw Error('Страна и валюта товара не совпадают');
     if(i.condition!=null&&(typeof i.condition!=='string'||i.condition.length>100))throw Error('Неверное состояние товара');
-    return {id:i.id,title:i.title,brand:i.brand,size:i.size,price:i.price,currency:i.currency,country,condition:i.condition||'',photoUrl:photoUrl(i.photoUrl),url:i.url||null,kind:i.kind||'jacket',color:i.color||'sand',demo:!!i.demo};
+    if(i.catalogPage!=null&&(!Number.isInteger(i.catalogPage)||i.catalogPage<1||i.catalogPage>10000))throw Error('Неверная страница источника');
+    return {...(i.catalogPage!=null?{catalogPage:i.catalogPage}:{}),id:i.id,title:i.title,brand:i.brand,size:i.size,price:i.price,currency:i.currency,country,condition:i.condition||'',photoUrl:photoUrl(i.photoUrl),url:i.url||null,kind:i.kind||'jacket',color:i.color||'sand',demo:!!i.demo};
   });
 }
 export function matches(search,item) {

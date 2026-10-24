@@ -98,7 +98,7 @@ export async function fetchCatalogProgress(url,{startPage=2,fetchPage=fetchCatal
   const u=new URL(url);if(page>1)u.searchParams.set('page',String(page));
   const items=await fetchPage(u.href);pages++;
   const added=items.filter(i=>!unique.has(i.id)).length;
-  for(const item of items)unique.set(item.id,item);
+  for(const item of items)if(!unique.has(item.id))unique.set(item.id,{...item,catalogPage:page});
   if(page>1){checkedThrough=Math.max(checkedThrough,page);nextPage=page+1;}
   if(!items.length||!added){complete=true;reason=!items.length?'empty':'repeated';break;}
   if(page===10000){complete=true;reason='bound';break;}

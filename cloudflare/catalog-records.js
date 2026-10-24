@@ -12,7 +12,7 @@ export function normalizeCatalogRows(input){
   if(row.country&&row.country!==country)throw Error('Страна в данных и ссылке объявления не совпадает');
   if(row.currency!==markets[country].currency)throw Error('Валюта объявления не соответствует рынку');
   const key=`vinted:${country}:${id}`;if(ids.has(key))continue;ids.add(key);
-  result.push({id:key,title:row.title,brand:row.brand??'',size:row.size??'',condition:row.condition??'',price:row.price,currency:row.currency,country,url:u.href,photoUrl:photoUrl(row.imageUrl),demo:false});
+  result.push({...(row.catalogPage!=null?{catalogPage:row.catalogPage}:{}),id:key,title:row.title,brand:row.brand??'',size:row.size??'',condition:row.condition??'',price:row.price,currency:row.currency,country,url:u.href,photoUrl:photoUrl(row.imageUrl),demo:false});
  }
  return validateItems(result);
 }

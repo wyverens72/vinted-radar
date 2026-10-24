@@ -26,3 +26,8 @@ test('Deep scan refreshes newest page and resumes old inventory without skipping
  await assert.rejects(fetchCatalogProgress('https://www.vinted.pl/catalog',{startPage:6,fetchPage:async u=>{if(new URL(u).searchParams.get('page')==='6')throw Error('blocked');return [{id:'new'}];}}));
  const finished=[];await fetchCatalogProgress('https://www.vinted.pl/catalog',{startPage:null,fetchPage:async u=>{finished.push(Number(new URL(u).searchParams.get('page')||1));return [{id:u}];}});assert.deepEqual(finished,[1,2]);
 });
+
+test('Catalog page provenance preserves the first occurrence across repeated promoted cards',async()=>{
+ const {fetchCatalogProgress}=await import('../cloudflare/vinted.js');const result=await fetchCatalogProgress('https://www.vinted.pl/catalog',{fetchPage:async u=>{const page=Number(new URL(u).searchParams.get('page')||1);return [{id:'promoted'},{id:'page-'+page}];}});
+ assert.equal(result.items.find(i=>i.id==='promoted').catalogPage,1);assert.equal(result.items.find(i=>i.id==='page-5').catalogPage,5);
+});

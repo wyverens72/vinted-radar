@@ -12,6 +12,7 @@ function fixture(){
  const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0003_public_catalog.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/0004_native_filters.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/0005_catalog_progress.sql',import.meta.url),'utf8'));
+ db.exec(readFileSync(new URL('../migrations/0006_notification_priority.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -323,4 +324,17 @@ test('Historical first-pass finds are queued once and stay deduplicated after de
  const s=db.prepare('SELECT * FROM searches WHERE id=?').get(saved.id);db.prepare('INSERT INTO catalog_cache VALUES(?,?,?)').run(catalogUrl(s),'[]',Date.now());
  await monitor(env,{force:true,send:false});assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,1);assert.equal(db.prepare('SELECT notified FROM matches').get().notified,1);
  db.exec('DELETE FROM outbox');await monitor(env,{force:true,send:false});assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);db.close();
+});
+
+test('Current-page finds overtake older queued selections without claiming publication age',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';env.CATALOG_FETCH_MODE='github';await owner('/login',{password:env.APP_PASSWORD});
+ const saved=await (await owner('/searches',{...search,country:'pl',currency:'PLN',size:'S',maxPrice:100})).json();db.prepare("UPDATE users SET notifications=1,chatId='111' WHERE id='owner'").run();
+ const {parseCatalog,catalogUrl,catalogSearchKey}=await import('../cloudflare/vinted.js');const base=parseCatalog(readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'))[0];
+ const s=db.prepare('SELECT * FROM searches WHERE id=?').get(saved.id);
+ const initial=[{...base,catalogPage:8}];db.prepare('INSERT INTO catalog_cache VALUES(?,?,?)').run(catalogUrl(s),JSON.stringify(initial),Date.now());
+ await monitor(env,{force:true,send:false});let queued=db.prepare('SELECT * FROM outbox').all();assert.equal(queued[0].priority,0);assert.match(queued[0].text,/Подборка по вашему поиску/);
+ const recent={...base,id:'vinted:pl:99999999999',title:'Current page result',catalogPage:1};db.prepare('UPDATE catalog_cache SET items=?,fetchedAt=?').run(JSON.stringify([recent]),Date.now());
+ await monitor(env,{force:true,send:false});queued=db.prepare('SELECT * FROM outbox ORDER BY priority DESC').all();assert.equal(queued[0].priority,2);assert.equal(queued[0].itemId,recent.id);assert.match(queued[0].text,/Найдено в начале выдачи/);assert.ok(!queued[0].text.includes('Опубликовано'));
+ const original=globalThis.fetch,sent=[];globalThis.fetch=async(url,o)=>{sent.push(JSON.parse(o.body));return Response.json({ok:true,result:{message_id:sent.length}});};
+ try{await deliver(env);assert.match(sent[0].caption,/Current page result/);assert.match(sent[1].caption,/Подборка по вашему поиску/);}finally{globalThis.fetch=original;db.close();}
 });
