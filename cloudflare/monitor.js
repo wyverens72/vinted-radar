@@ -1,3 +1,4 @@
+import {readCatalog,catalogSearchKey} from './vinted.js';
 import {matches} from '../server/domain.js';
 import {run,rows,lease,release} from './data.js';
 import {notificationFor,sendNotification} from './notifications.js';
@@ -39,29 +40,34 @@ export async function deliver(env){
 }
 export async function monitor(env,{userId=null,force=false,send=true}={}){
  const key=userId?'monitor:'+userId:'monitor:scheduled',token=await lease(env,key);if(!token)return {busy:true};
- let found=0;
+ let found=0,failed=0;
  try{
-  const now=Date.now();
-  const searches=await rows(env,`SELECT s.*,u.chatId,u.notifications FROM searches s JOIN users u ON s.userId=u.id WHERE s.enabled=1 AND u.enabled=1 AND (? IS NULL OR s.userId=?) AND (? OR s.nextCheck<=?) ORDER BY s.nextCheck LIMIT 5`,userId,userId,Number(force),now);
+  const now=Date.now(),dueLimit=env.DATA_SOURCE==='vinted-public'?3:5;
+  const searches=await rows(env,`SELECT s.*,u.chatId,u.notifications FROM searches s JOIN users u ON s.userId=u.id WHERE s.enabled=1 AND u.enabled=1 AND (? IS NULL OR s.userId=?) AND (? OR s.nextCheck<=?) ORDER BY s.nextCheck LIMIT ?`,userId,userId,Number(force),now,dueLimit);
   let items;
   if(!searches.length)items=[];
   else if(env.DATA_SOURCE==='demo'||!env.DATA_SOURCE)items=demoItems(now);
   else if(env.DATA_SOURCE==='authorized-feed'&&env.AUTHORIZED_FEED_CONFIRMED==='true')items=(await rows(env,'SELECT item FROM feed LIMIT 500')).map(i=>JSON.parse(i.item));
-  else throw Error('Для источника требуется подтверждённое разрешение');
+  else if(env.DATA_SOURCE==='vinted-public')items=[];
+  else throw Error('Источник данных не настроен');
   for(const s of searches){
    // Claim each search atomically, including when a manual check overlaps a cron run.
    const claim=await run(env,'UPDATE searches SET nextCheck=? WHERE id=? AND nextCheck=?',now+Math.max(s.intervalMinutes,5)*60000,s.id,s.nextCheck);
    if(!claim.meta.changes)continue;
-   const selected=items.filter(i=>matches(s,i)).slice(0,100);
+   try{
+   const live=env.DATA_SOURCE==='vinted-public',key=live?catalogSearchKey(s):null,baseline=live&&s.catalogKey!==key;
+   const sourceItems=live?await readCatalog(env,s):items;
+   const selected=sourceItems.filter(i=>matches(s,i)).slice(0,100);
    const envelopes=selected.map(item=>({item,...notificationFor(s,item)}));
    const statements=[env.DB.prepare(`INSERT OR IGNORE INTO matches(searchId,itemId,item,foundAt) SELECT ?,json_extract(value,'$.item.id'),json_extract(value,'$.item'),? FROM json_each(?)`).bind(s.id,now,JSON.stringify(envelopes))];
    if(env.BOT_TOKEN&&s.notifications&&s.chatId&&(env.DATA_SOURCE==='demo'||!env.DATA_SOURCE))statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text) SELECT ?,?,?,? || group_concat('• ' || json_extract(item,'$.title') || ' · ' || json_extract(item,'$.price') || CASE WHEN json_extract(item,'$.currency')='PLN' THEN ' zł' ELSE ' €' END,char(10)) || ? FROM (SELECT item FROM matches WHERE searchId=? AND foundAt=? LIMIT 5) HAVING count(*)>0`).bind(crypto.randomUUID(),s.id,'batch:'+now,`${env.DATA_SOURCE==='demo'?'🧪 ДЕМО · ':''}${s.name}\nНовые совпадения (первые 5):\n`,env.PUBLIC_URL?'\nВсе находки: '+env.PUBLIC_URL:'',s.id,now));
-   if(env.BOT_TOKEN&&s.notifications&&s.chatId&&env.DATA_SOURCE&&env.DATA_SOURCE!=='demo')statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text,payload,createdAt) SELECT 'item:'||?||':'||json_extract(e.value,'$.item.id'),?,json_extract(e.value,'$.item.id'),json_extract(e.value,'$.fallbackText'),json_extract(e.value,'$.payload'),? FROM json_each(?) e JOIN matches m ON m.searchId=? AND m.itemId=json_extract(e.value,'$.item.id') WHERE m.foundAt=?`).bind(s.id,s.id,now,JSON.stringify(envelopes),s.id,now));
-   statements.push(env.DB.prepare('UPDATE searches SET lastChecked=?,error=NULL WHERE id=?').bind(now,s.id));
+   if(!baseline&&env.BOT_TOKEN&&s.notifications&&s.chatId&&env.DATA_SOURCE&&env.DATA_SOURCE!=='demo')statements.push(env.DB.prepare(`INSERT OR IGNORE INTO outbox(id,searchId,itemId,text,payload,createdAt) SELECT 'item:'||?||':'||json_extract(e.value,'$.item.id'),?,json_extract(e.value,'$.item.id'),json_extract(e.value,'$.fallbackText'),json_extract(e.value,'$.payload'),? FROM json_each(?) e JOIN matches m ON m.searchId=? AND m.itemId=json_extract(e.value,'$.item.id') WHERE m.foundAt=?`).bind(s.id,s.id,now,JSON.stringify(envelopes),s.id,now));
+   statements.push(env.DB.prepare('UPDATE searches SET lastChecked=?,error=NULL,catalogKey=? WHERE id=?').bind(now,key,s.id));
    const result=await env.DB.batch(statements);found+=result[0].meta.changes;
+   }catch(e){failed++;await run(env,'UPDATE searches SET error=?,nextCheck=? WHERE id=?',String(e.message).slice(0,300),now+Math.max(s.intervalMinutes,5)*60000,s.id);if(env.DATA_SOURCE!=='vinted-public')throw e;}
   }
   if(send)await deliver(env);
-  return {found};
+  return {found,failed};
  }catch(e){
   if(userId)await run(env,'UPDATE searches SET error=? WHERE userId=? AND enabled=1',e.message,userId);
   throw e;

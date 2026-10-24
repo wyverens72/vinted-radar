@@ -1,3 +1,4 @@
+import {readCatalog} from './vinted.js';
 import {marketFields} from '../server/catalog.js';
 import {validateSearch,validateItems} from '../server/domain.js';
 import {digest,random,equal,cookie,telegramIdentity} from './security.js';
@@ -66,10 +67,10 @@ async function router(request,env,ctx){
  if(path==='/api/state'&&method==='GET'){
   const [searches,items,pending]=await Promise.all([
    rows(env,'SELECT * FROM searches WHERE userId=? ORDER BY createdAt DESC',u.id),
-   rows(env,'SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? ORDER BY m.foundAt DESC LIMIT 500',u.id),
+   rows(env,`SELECT m.*,s.name searchName FROM matches m JOIN searches s ON s.id=m.searchId WHERE s.userId=? AND (?=1 OR COALESCE(json_extract(m.item,'$.demo'),0)=0) ORDER BY m.foundAt DESC LIMIT 500`,u.id,Number(!env.DATA_SOURCE||env.DATA_SOURCE==='demo')),
    one(env,'SELECT count(*) n FROM outbox o JOIN searches s ON o.searchId=s.id WHERE s.userId=? AND o.sentAt IS NULL',u.id)
   ]);
-  return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
+  return json({cloud:true,user:{id:u.id,name:u.name,role:u.role},source:env.DATA_SOURCE||'demo',catalog:env.DATA_SOURCE==='vinted-public'?{blockedUntil:Number(await getSetting(env,'vintedBlockedUntil')||0),lastError:await getSetting(env,'vintedLastError')||null,lastSuccess:Number(await getSetting(env,'vintedLastSuccess')||0)}:null,telegram:{configured:!!(env.BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET),connected:!!(u.notifications&&u.chatId),botUrl:env.BOT_USERNAME?`https://t.me/${env.BOT_USERNAME}`:null,error:u.notificationError,pending:pending.n},searches:searches.map(s=>({...s,enabled:!!s.enabled})),items:items.map(m=>({...JSON.parse(m.item),searchId:m.searchId,searchName:m.searchName,foundAt:m.foundAt,favorite:!!m.favorite}))});
  }
  if(path==='/api/searches'&&method==='POST'){
   const input=await body(request),s={...validateSearch(input),...marketFields(input)};
@@ -135,6 +136,11 @@ async function router(request,env,ctx){
   await telegramCall(env,'setChatMenuButton',{menu_button:{type:'web_app',text:'Мой радар',web_app:{url:env.PUBLIC_URL}}});
   return json({ok:true,botUrl:`https://t.me/${me.username}`});
  }
+ if(path==='/api/admin/catalog/check'&&method==='POST'){
+  admin();if(!await limit(env,'catalog-check',1,60000))fail('Повторная проверка доступна через минуту',429);
+  const items=await readCatalog(env,{country:'pl',query:'',brand:'COS',minPrice:0,maxPrice:100});
+  return json({ok:true,count:items.length,sample:items.slice(0,3)});
+ }
  if(path==='/api/admin/feed'&&method==='PUT'){
   admin();const b=await body(request);
   if(env.DATA_SOURCE!=='authorized-feed'||env.AUTHORIZED_FEED_CONFIRMED!=='true'||b.permissionConfirmed!==true)fail('Источник должен иметь подтверждённое разрешение');
@@ -163,6 +169,7 @@ export default {
      env.DB.prepare('DELETE FROM sessions WHERE expires<?').bind(now),
      env.DB.prepare('DELETE FROM login_codes WHERE expires<?').bind(now),
      env.DB.prepare('DELETE FROM rate_limits WHERE expires<?').bind(now),
+     env.DB.prepare('DELETE FROM catalog_cache WHERE fetchedAt<?').bind(now-86400000),
      env.DB.prepare('DELETE FROM updates WHERE createdAt<?').bind(now-86400000),
      env.DB.prepare('DELETE FROM outbox WHERE sentAt<?').bind(now-7*86400000),
      env.DB.prepare("DELETE FROM matches WHERE favorite=0 AND foundAt<? AND json_extract(item,'$.demo')=1").bind(now-7*86400000)

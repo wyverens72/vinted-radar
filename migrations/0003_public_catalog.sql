@@ -1,0 +1,2 @@
+CREATE TABLE catalog_cache(url TEXT PRIMARY KEY,items TEXT NOT NULL,fetchedAt INTEGER NOT NULL);
+ALTER TABLE searches ADD COLUMN catalogKey TEXT;

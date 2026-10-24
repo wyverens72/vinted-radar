@@ -9,7 +9,7 @@ import {acceptInvite,newLoginCode} from '../cloudflare/telegram.js';
 import {digest,telegramIdentity} from '../cloudflare/security.js';
 // Uses real SQLite for the D1 SQL surface and atomic batch semantics. Wrangler checks the actual Worker bundle separately.
 function fixture(){
- const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));
+ const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_cloud.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0002_catalog_media.sql',import.meta.url),'utf8'));db.exec(readFileSync(new URL('../migrations/0003_public_catalog.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -176,4 +176,33 @@ test('Real catalog pipeline queues individual photos atomically and isolates mat
  assert.equal(JSON.parse(db.prepare('SELECT payload FROM outbox').get().payload).method,'sendPhoto');
  const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return Response.json({ok:true,result:{message_id:1}});};
  try{await deliver(env);assert.equal(calls.length,1);assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,item.photoUrl);await monitor(env,{force:true});assert.equal(calls.length,1);}finally{globalThis.fetch=original;db.close();}
+});
+
+test('Public monitoring caches identical URLs, baselines without alerts, deduplicates and records blocks per search',async()=>{
+ const {env,db}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';
+ await owner('/login',{password:env.APP_PASSWORD});
+ const pl={...search,country:'pl',currency:'PLN',size:'S',maxPrice:100};
+ await owner('/searches',pl);await owner('/searches',{...pl,name:'Second'});
+ db.prepare("UPDATE users SET chatId='111',notifications=1 WHERE id='owner'").run();
+ const html=readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8'),original=globalThis.fetch;let calls=0;
+ globalThis.fetch=async()=>{calls++;return new Response(html,{headers:{'content-type':'text/html'}});};
+ try{
+  await monitor(env,{send:false});assert.equal(calls,1);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,0);
+  db.exec('UPDATE catalog_cache SET fetchedAt=0');
+  globalThis.fetch=async()=>{calls++;return new Response(html.replaceAll('10508917416','10508917417'),{headers:{'content-type':'text/html'}});};
+  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,2);
+  await monitor(env,{force:true,send:false});assert.equal(calls,2);assert.equal(db.prepare('SELECT count(*) n FROM outbox').get().n,2);
+  db.exec('UPDATE catalog_cache SET fetchedAt=0');globalThis.fetch=async()=>{calls++;return new Response('blocked',{status:403});};
+  await monitor(env,{force:true,send:false});assert.equal(calls,3);assert.equal(db.prepare('SELECT count(*) n FROM searches WHERE error IS NOT NULL').get().n,2);
+  await monitor(env,{force:true,send:false});assert.equal(calls,3);assert.equal(db.prepare('SELECT count(*) n FROM matches').get().n,4);
+ }finally{globalThis.fetch=original;db.close();}
+});
+
+test('Public scheduled scan with fresh pages stays within the Free query budget',async()=>{
+ const {env,db,count,reset}=fixture(),owner=client(env);env.DATA_SOURCE='vinted-public';await owner('/login',{password:env.APP_PASSWORD});
+ for(let n=0;n<5;n++)await owner('/searches',{...search,country:'pl',currency:'PLN',size:'S',maxPrice:100+n});
+ const original=globalThis.fetch,html=readFileSync(new URL('./fixtures/vinted-pl-card.html',import.meta.url),'utf8');let calls=0;
+ globalThis.fetch=async()=>{calls++;return new Response(html,{headers:{'content-type':'text/html'}});};
+ try{reset();let job;await worker.scheduled({},env,{waitUntil:p=>{job=p;}});await job;assert.equal(calls,3);assert.ok(count()<=50,`D1 statements: ${count()}`);assert.equal(db.prepare('SELECT count(*) n FROM searches WHERE lastChecked IS NOT NULL').get().n,3);}
+ finally{globalThis.fetch=original;db.close();}
 });
