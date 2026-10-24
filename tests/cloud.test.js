@@ -13,6 +13,7 @@ function fixture(){
  db.exec(readFileSync(new URL('../migrations/0004_native_filters.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/0005_catalog_progress.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/0006_notification_priority.sql',import.meta.url),'utf8'));
+ db.exec(readFileSync(new URL('../migrations/0007_browser_login.sql',import.meta.url),'utf8'));
  let count=0;
  class Statement{
   constructor(sql,args=[]){this.sql=sql;this.args=args;}
@@ -346,4 +347,28 @@ test('Search sorting roundtrips through API and demotes the previous mode queue'
  assert.equal((await owner('/searches/'+saved.id,{...input,catalogUrl:'https://www.vinted.pl/catalog?search_text=cos&order=relevance'},'PUT')).status,200);
  const state=await (await owner('/state')).json(),s=state.searches.find(s=>s.id===saved.id);assert.equal(new URL(s.catalogUrl).searchParams.get('order'),'relevance');assert.equal(db.prepare('SELECT priority FROM outbox').get().priority,0);
  const exported=await (await owner('/export')).json();assert.equal(new URL(exported.searches[0].catalogUrl).searchParams.get('order'),'relevance');db.close();
+});
+
+test('Browser login pairs only after private Telegram start, confirms once and expires',async()=>{
+ const {env,db}=fixture();env.PUBLIC_REGISTRATION='true';const browser=client(env),other=client(env),original=globalThis.fetch;
+ const sent=[];globalThis.fetch=async(url,options)=>{sent.push(JSON.parse(options.body));return Response.json({ok:true,result:{message_id:1}});};
+ const hook=(id,token,update_id)=>worker.fetch(new Request('https://radar.example/api/telegram/webhook',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':env.TELEGRAM_WEBHOOK_SECRET},body:JSON.stringify({update_id,message:{chat:{id,type:'private'},from:{id,first_name:'Person '+id},text:'/start login_'+token}})}),env,{});
+ try{
+  const pending=await (await browser('/login/browser',{})).json();assert.match(pending.url,/\?start=login_[a-f0-9]{48}$/);
+  assert.deepEqual(await (await browser('/login/browser',{token:pending.token})).json(),{ready:false});
+  assert.equal((await browser('/login',{loginCode:pending.token})).status,401);
+  await hook(222,pending.token,900);assert.match(sent.at(-1).text,/Вернитесь на сайт/);
+  assert.deepEqual(await (await browser('/login/browser',{token:pending.token})).json(),{ready:true});
+  assert.equal((await browser('/state')).status,401);
+  await hook(333,pending.token,901);
+  assert.equal((await (await browser('/login/preview',{loginCode:pending.token})).json()).name,'Person 222');
+  assert.equal((await browser('/login',{loginCode:pending.token})).status,200);
+  assert.equal((await (await browser('/state')).json()).user.id,'tg:222');
+  await hook(222,pending.token,902);
+  assert.equal((await other('/login',{loginCode:pending.token})).status,401);
+  const expired=await (await other('/login/browser',{})).json();db.prepare('UPDATE browser_logins SET expires=0').run();
+  await hook(222,expired.token,903);
+  assert.equal((await other('/login/browser',{token:expired.token})).status,410);
+  assert.equal((await other('/login',{loginCode:expired.token})).status,401);
+ }finally{globalThis.fetch=original;db.close();}
 });

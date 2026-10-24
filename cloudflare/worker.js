@@ -41,6 +41,20 @@ async function router(request,env,ctx){
   if(request.headers.get('X-Radar-Client')!=='1')fail('Обновите приложение',403);
   const origin=request.headers.get('Origin');if(origin&&origin!==url.origin)fail('Недопустимый источник запроса',403);
  }
+ if(path==='/api/login/browser'&&method==='POST'){
+  const b=await body(request),now=Date.now();
+  if(b.token){
+   if(typeof b.token!=='string'||!/^[a-f0-9]{48}$/.test(b.token))fail('Начните вход заново');
+   const entry=await one(env,'SELECT b.userId,u.name FROM browser_logins b LEFT JOIN users u ON b.userId=u.id AND u.enabled=1 WHERE b.token=? AND b.expires>?',await digest(b.token),now);
+   if(!entry)fail('Время ожидания истекло. Начните вход заново.',410);
+   return json({ready:!!(entry.userId&&entry.name)});
+  }
+  if(!await limit(env,'browser-login:'+(request.headers.get('CF-Connecting-IP')||'local'),12,900000))fail('Слишком много попыток. Попробуйте позже.',429);
+  const token=random();
+  await run(env,'DELETE FROM browser_logins WHERE expires<?',now);
+  await run(env,'INSERT INTO browser_logins(token,expires) VALUES(?,?)',await digest(token),now+300000);
+  return json({token,url:`https://t.me/${env.BOT_USERNAME}?start=login_${token}`});
+ }
  if((path==='/api/login'||path==='/api/login/preview')&&method==='POST'){
   const key='login:'+(request.headers.get('CF-Connecting-IP')||'local');
   if(!await limit(env,key,12,900000))fail('Слишком много попыток. Подождите 15 минут.',429);

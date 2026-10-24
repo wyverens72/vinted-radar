@@ -4,7 +4,7 @@
 
 Личный радар находок: React PWA, Telegram Mini App и Telegram-бот. Облачная версия работает на Cloudflare Workers + D1 + Cron Triggers; ориентирована на бесплатный тариф и небольшую группу приглашённых пользователей.
 
-**Собственный сборщик публичного Vinted.pl включён по подтверждению владельца. Текущая схема: GitHub Actions собирает, Cloudflare хранит и уведомляет; Mac не нужен.** Он читает первую страницу HTML без входа и отправки cookies. С компьютера получен HTTP 200 и разобраны 96 карточек; предыдущая проверка с Cloudflare получила HTTP 429. Сохранённая пауза после отказа доступа не сбрасывается при публикации. Текущий статус показан в приложении. Наличие технического доступа не означает разрешения Vinted. Проект не связан с Vinted.
+**Собственный сборщик публичного Vinted.pl включён по подтверждению владельца. Текущая схема: GitHub Actions собирает, Cloudflare хранит и уведомляет; постоянно включённый компьютер не нужен.** Он читает первую страницу HTML без входа и отправки cookies. С компьютера получен HTTP 200 и разобраны 96 карточек; предыдущая проверка с Cloudflare получила HTTP 429. Сохранённая пауза после отказа доступа не сбрасывается при публикации. Текущий статус показан в приложении. Наличие технического доступа не означает разрешения Vinted. Проект не связан с Vinted.
 
 ## Возможности
 
@@ -16,7 +16,7 @@
 - Новые совпадения собираются в одно Telegram-сообщение на поиск с первыми пятью находками; вся лента доступна в приложении.
 - Дедупликация находок и очередь повторной доставки. До одного сообщения на чат за один запуск расписания.
 - Telegram webhook с секретным заголовком; /start, /login, /status, /stop.
-- Установка PWA на iPhone/Mac и экран отсутствия сети. Для просмотра личных данных нужен интернет.
+- Установка PWA в поддерживаемых браузерах и экран отсутствия сети. Для просмотра личных данных нужен интернет.
 
 ## Разработка
 
@@ -72,13 +72,13 @@ GitHub Actions проверяет исходники на push; автомати
 4. Разверните изменение настроек. Войдите на сайт по паролю владельца.
 5. Подключение → **Подключить Telegram webhook**. Кнопка регистрирует webhook, команды и меню Mini App. После неё локальный старый polling с тем же токеном запускать нельзя.
 6. Отправьте боту /start, затем проверьте тестовое сообщение в приложении.
-7. Чтобы войти в Safari, отправьте /login и откройте выданную ссылку. Перед входом подтвердите отображённое имя. Ссылка действует 5 минут, одноразовая и не предназначена для пересылки.
+7. Для входа нажмите кнопку Telegram на сайте, откройте бота, нажмите «Запустить» и вернитесь на сайт. Перед входом подтвердите отображённое имя. Ссылка действует 5 минут, одноразовая и не предназначена для пересылки.
 
 Если числовой Telegram ID неизвестен, временно можно узнать его через getUpdates в локальной инструкции [README_NODE_LEGACY.md](README_NODE_LEGACY.md) до подключения webhook. Либо установите webhook без TELEGRAM_OWNER_ID: отправитель /start, ещё не зарегистрированный в радаре, получит от бота свой Telegram ID. После этого владелец задаёт TELEGRAM_OWNER_ID в настройках Cloudflare. Никакие аккаунты автоматически владельцами не становятся.
 
 ## Приглашение подруги
 
-Отправьте подруге обычную ссылку сайта или https://t.me/SNvintedradarbot. На сайте она выбирает «Зарегистрироваться / войти через Telegram», в боте нажимает Start. Бот создаёт отдельный аккаунт, подключает личные уведомления и предлагает Mini App либо одноразовую ссылку в браузер. Ссылку входа нельзя пересылать; она действует 5 минут. Пароль владельца не нужен. Приглашения владельца остаются дополнительным вариантом.
+Поделитесь обычной ссылкой сайта или https://t.me/SNvintedradarbot. На сайте пользователь выбирает «Зарегистрироваться / войти через Telegram», в боте нажимает Start. Бот создаёт отдельный аккаунт, подключает личные уведомления и предлагает Mini App либо одноразовую ссылку в браузер. Ссылку входа нельзя пересылать; она действует 5 минут. Пароль владельца не нужен. Приглашения владельца остаются дополнительным вариантом.
 
 Отключение участника завершает его сессии, блокирует подпись Telegram и удаляет ожидающую очередь его уведомлений. Поиски сохраняются; при восстановлении доступа снова доступны. /stop останавливает только уведомления пользователя, не его поиски.
 
@@ -187,3 +187,6 @@ Search ordering: the form offers “Самые новые” (`order=newest_firs
 
 
 Safari/browser login fallback: `/login` supplies a fresh one-use URL as both button and selectable text, with link previews disabled. The login screen lets users paste that URL into the same browser; input parsing accepts only same-origin root login URLs (or the full 48-hex token), shows the account preview and retains explicit confirmation before consumption. No cross-browser cookie sharing is assumed. Hash changes and BFCache pageshow events refresh the pending token; old preview error/name state is reset and stale responses are ignored.
+
+### Browser login handoff
+The website creates a five-minute pairing request and opens the bot with `start=login_<token>`. A verified private Telegram update binds it once. Returning to the original browser shows the account name for explicit confirmation; only then is a one-use session issued. Pending requests survive reload in sessionStorage. Expired, consumed and rebound tokens cannot sign in. `/login` remains an optional generic fallback.
