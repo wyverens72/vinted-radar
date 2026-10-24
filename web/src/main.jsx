@@ -20,6 +20,7 @@ function Garment({kind}){return <svg viewBox="0 0 240 220" aria-hidden="true"><e
 function ListingArt({item}){const [failed,setFailed]=useState(false);if(item.photoUrl&&!failed)return <img className="listing-photo" src={item.photoUrl} alt={item.title} loading="lazy" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>;return item.demo?<Garment kind={item.kind}/>:<div className="photo-missing"><Icon type="search"/><span>Фото недоступно</span></div>;}
 function App(){
  const [publicConfig,setPublicConfig]=useState(null),[loginCode,setLoginCode]=useState(initialCode);
+ useEffect(()=>{function receiveLink(){const code=new URLSearchParams(location.hash.slice(1)).get('login');if(code){setLoginCode(code);history.replaceState(null,'',location.pathname+location.search);}}window.addEventListener('hashchange',receiveLink);window.addEventListener('pageshow',receiveLink);return()=>{window.removeEventListener('hashchange',receiveLink);window.removeEventListener('pageshow',receiveLink);};},[]);
  useEffect(()=>{fetch('/api/public-config').then(r=>r.ok?r.json():null).then(setPublicConfig).catch(()=>{});},[]);
  const previousFeed=useRef(null);
  const [older,setOlder]=useState([]),[moreOlder,setMoreOlder]=useState(true);

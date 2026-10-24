@@ -184,3 +184,6 @@ Migration 0006 adds queue priority and scan order. Catalog imports now retain `c
 
 
 Search ordering: the form offers “Самые новые” (`order=newest_first`) and “Рекомендованные Vinted” (`order=relevance`). Both values are verified against the public Polish Vinted sorting UI (“Od najnowszych” and “Trafność”). Relevance is not represented as a verified popularity/most-liked ranking. Imported URLs preserve an explicit supported order; UI import with no order uses Vinted's relevance default, while new manually configured searches default to newest-first. Changing a search URL demotes pending prior-search messages to background priority without deleting them. The canonical URL (including order) keys the catalog cache and saved scan cursor.
+
+
+Safari/browser login fallback: `/login` supplies a fresh one-use URL as both button and selectable text, with link previews disabled. The login screen lets users paste that URL into the same browser; input parsing accepts only same-origin root login URLs (or the full 48-hex token), shows the account preview and retains explicit confirmation before consumption. No cross-browser cookie sharing is assumed. Hash changes and BFCache pageshow events refresh the pending token; old preview error/name state is reset and stale responses are ignored.
